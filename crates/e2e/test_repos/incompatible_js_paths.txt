@@ -1,0 +1,5 @@
+TypeScript/tests/baselines/reference/parserAmbiguity1.js
+TypeScript/tests/baselines/reference/parserConstructorAmbiguity3.js
+TypeScript/tests/baselines/reference/genericReduce.js
+TypeScript/tests/baselines/reference/parserAmbiguityWithBinaryOperator4.js
+TypeScript/tests/baselines/reference/parserSuperExpression3.js

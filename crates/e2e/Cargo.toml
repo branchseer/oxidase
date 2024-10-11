@@ -1,0 +1,34 @@
+[package]
+name = "oxidase_e2e"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "e2e_generate"
+path = "src/generate/main.rs"
+
+[[test]]
+name = "e2e"
+path = "src/test.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+csv = { workspace = true }
+oxidase = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+pretty_assertions = { workspace = true }
+rayon = { workspace = true }
+oxc_parser = { workspace = true }
+oxc_span = { workspace = true }
+oxc_allocator = { workspace = true }
+swc_ecma_parser = { workspace = true }
+swc_common = { workspace = true }
+swc_ecma_ast = { workspace = true }
+swc = { workspace = true }
+swc_ecma_visit = { workspace = true }
+swc_ecma_transforms_typescript = { workspace = true }
+thread_local = { workspace = true }
+googletest = { workspace = true }
+anyhow = { workspace = true }

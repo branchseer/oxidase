@@ -1,0 +1,14 @@
+{
+	"extends": "@tsconfig/strictest/tsconfig.json",
+	"compilerOptions": {
+		"esModuleInterop": false,
+		"allowSyntheticDefaultImports": true,
+		"verbatimModuleSyntax": true,
+		"moduleDetection": "force",
+		"target": "ESNext",
+		"moduleResolution": "Bundler",
+		"module": "Preserve",
+		"noEmit": true
+	},
+	"include": ["src/**/*"]
+}

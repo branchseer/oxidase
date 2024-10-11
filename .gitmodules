@@ -1,0 +1,8 @@
+[submodule "baseline/sources/transpile/zod"]
+	path = crates/e2e/test_repos/zod
+	url = https://github.com/colinhacks/zod
+	shallow = true
+[submodule "baseline/sources/transpile/TypeScript"]
+	path = crates/e2e/test_repos/TypeScript
+	url = https://github.com/Microsoft/TypeScript
+	shallow = true
