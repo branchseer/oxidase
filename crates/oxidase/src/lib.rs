@@ -11,7 +11,8 @@ use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::ParserWithOpt;
 pub use oxc_span::SourceType;
 use oxc_span::{ModuleKind as OxcModuleKind, Span};
-use patch::Patch;
+use patch::{apply_patches, Patch};
+pub use source::Source;
 use visitor::Visitor;
 
 type HashMap<'a, K, V> = hashbrown::HashMap<K, V, rustc_hash::FxBuildHasher, &'a bumpalo::Bump>;
@@ -33,32 +34,44 @@ impl From<ModuleKind> for OxcModuleKind {
     }
 }
 
-pub struct Error {
-    oxc_errors: std::vec::Vec<OxcDiagnostic>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TranspileOptions {
+    pub source_type: SourceType,
+    pub prefer_blank_space: bool,
 }
 
-struct OxcResult<T> {
-    ok: Option<T>,
-    errors: std::vec::Vec<OxcDiagnostic>,
+#[derive(Debug)]
+pub struct TranspileReturn {
+    pub panicked: bool,
+    pub errors: std::vec::Vec<OxcDiagnostic>,
 }
 
-fn transiple_patches<'alloc, 'source>(
+pub fn transpile<'alloc>(
     allocator: &'alloc Allocator,
-    source_type: SourceType,
-    source: &'source str,
-) -> OxcResult<Vec<'alloc, Patch<'alloc>>> {
-    let parser = ParserWithOpt::<true>::new(allocator, source, source_type);
-    let ret = parser.parse();
-    if ret.panicked {
-        return OxcResult {
-            ok: None,
-            errors: ret.errors,
+    options: TranspileOptions,
+    source: &mut Source<'_, 'alloc>,
+) -> TranspileReturn {
+    let parser = ParserWithOpt::<true>::new(allocator, source.as_str(), options.source_type);
+    let mut parser_ret = parser.parse();
+    if parser_ret.panicked {
+        return TranspileReturn {
+            panicked: true,
+            errors: parser_ret.errors,
         };
     }
-    let mut visitor = Visitor::new(allocator);
-    oxc_ast::visit::walk::walk_program(&mut visitor, &ret.program);
-    OxcResult {
-        ok: Some(visitor.into_patches()),
-        errors: ret.errors,
+    let errors = std::mem::take(&mut parser_ret.errors);
+
+    let mut visitor = Visitor::new(allocator, source.as_str());
+    oxc_ast::visit::walk::walk_program(&mut visitor, &parser_ret.program);
+
+    let patches = visitor.into_patches();
+
+    drop(parser_ret);
+
+    apply_patches(allocator, &patches, options.prefer_blank_space, source);
+
+    TranspileReturn {
+        panicked: false,
+        errors: errors,
     }
 }
