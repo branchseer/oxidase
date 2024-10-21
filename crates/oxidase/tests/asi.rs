@@ -6,6 +6,10 @@ use utils::check_transpile;
 fn stmt_asi() {
     check_transpile("a\ninterface A {}\n/a/", "a\n;\n/a/")
 }
+#[test]
+fn stmt_asi_first() {
+    check_transpile("a; () => {\ninterface A {}\n/a/}", "a; () => {\n\n/a/}")
+}
 
 #[test]
 fn stmt_postfix_asi() {

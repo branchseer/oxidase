@@ -1,6 +1,6 @@
 mod patch;
 mod source;
-mod visitor;
+mod handler;
 
 use std::cell::Cell;
 use std::convert::Infallible;
@@ -8,12 +8,12 @@ use std::convert::Infallible;
 pub use oxc_allocator::Allocator;
 use oxc_allocator::Vec;
 use oxc_diagnostics::OxcDiagnostic;
-use oxc_parser::ParserWithOpt;
+use oxc_parser::{ParseOptions, Parser};
 pub use oxc_span::SourceType;
 use oxc_span::{ModuleKind as OxcModuleKind, Span};
 use patch::{apply_patches, Patch};
 pub use source::Source;
-use visitor::Visitor;
+use handler::StripHandler;
 
 type HashMap<'a, K, V> = hashbrown::HashMap<K, V, rustc_hash::FxBuildHasher, &'a bumpalo::Bump>;
 type HashSet<'a, T> = hashbrown::HashSet<T, rustc_hash::FxBuildHasher, &'a bumpalo::Bump>;
@@ -51,8 +51,12 @@ pub fn transpile<'alloc>(
     options: TranspileOptions,
     source: &mut Source<'_, 'alloc>,
 ) -> TranspileReturn {
-    let parser = ParserWithOpt::<true>::new(allocator, source.as_str(), options.source_type);
-    let mut parser_ret = parser.parse();
+    let mut parser_options = ParseOptions::default();
+    parser_options.allow_skip_ambient = true;
+    let parser = Parser::new(allocator, source.as_str(), options.source_type).with_options(parser_options);
+    let handler = StripHandler::new(allocator, source.as_str());
+
+    let mut parser_ret = parser.parse_with_handler(handler);
     if parser_ret.panicked {
         return TranspileReturn {
             panicked: true,
@@ -61,12 +65,9 @@ pub fn transpile<'alloc>(
     }
     let errors = std::mem::take(&mut parser_ret.errors);
 
-    let mut visitor = Visitor::new(allocator, source.as_str());
-    oxc_ast::visit::walk::walk_program(&mut visitor, &parser_ret.program);
+    let patches = parser_ret.handler.into_patches();
 
-    let patches = visitor.into_patches();
-
-    drop(parser_ret);
+    // drop(parser_ret);
 
     apply_patches(allocator, &patches, options.prefer_blank_space, source);
 
