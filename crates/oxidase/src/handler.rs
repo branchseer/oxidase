@@ -1,7 +1,8 @@
 use crate::patch::Patch;
+use bumpalo::format;
 use oxc_allocator::{Allocator, Vec};
 use oxc_ast::ast::*;
-use oxc_ast::handle::{Handler as AstHandler};
+use oxc_ast::handle::Handler as AstHandler;
 use oxc_parser::Handler as ParserHandler;
 use oxc_span::ast_alloc::VoidAllocator;
 use oxc_span::GetSpan;
@@ -15,7 +16,7 @@ const WHITESPACES: [&str; 25] = [
     "\u{000A}", "\u{000D}", "\u{2028}", "\u{2029}",
 ];
 
-fn skip_whitespaces(source: &[u8]) -> usize {
+fn skip_whitespace(source: &[u8]) -> usize {
     let mut idx = 0;
     'outer: while idx < source.len() {
         for ws in WHITESPACES {
@@ -29,6 +30,32 @@ fn skip_whitespaces(source: &[u8]) -> usize {
     idx
 }
 
+fn skip_ending_whitespace(source: &[u8]) -> usize {
+    let mut idx = source.len();
+    'outer: while idx >= 0 {
+        for ws in WHITESPACES {
+            if source[..idx].ends_with(ws.as_bytes()) {
+                idx -= ws.len();
+                continue 'outer;
+            }
+        }
+        break;
+    }
+    idx
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_skip_ending_whitespace() {
+        assert_eq!(skip_ending_whitespace(b"abc    "), 3);
+        assert_eq!(skip_ending_whitespace(b"a"), 1);
+        assert_eq!(skip_ending_whitespace(b""), 0);
+    }
+}
+
 pub struct StripHandler<'source, 'alloc> {
     source: &'source str,
     allocator: &'alloc Allocator,
@@ -40,13 +67,26 @@ pub struct StripHandler<'source, 'alloc> {
 #[derive(Clone, Copy, Debug)]
 pub struct StripHandlerCheckpoint {
     patch_len: usize,
-    scope_stack_len: usize
+    scope_stack_len: usize,
 }
 
 struct LastStatement {
     span: Span,
     is_first: bool,
-    strip_patch_index: Option<usize>,
+
+    /// None if the statement's suffix/whole is not patched
+    patch: Option<StatementPatch>,
+}
+
+struct StatementPatch {
+    index: usize,
+    kind: StatementStripKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum StatementStripKind {
+    Whole,
+    Tail,
 }
 
 #[derive(Default)]
@@ -67,11 +107,11 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         self.patches
     }
     fn push_strip(&mut self, span: Span) {
+        // println!("{}", std::backtrace::Backtrace::force_capture());
         self.push_patch(span, "");
     }
-    fn push_strip_with_right_whitespaces(&mut self, mut span: Span) {
-        self.expand_right_whitespace(&mut span);
-        self.push_strip(span);
+    fn push_strip_with_right_whitespaces(&mut self, span: Span) {
+        self.push_strip(self.expand_right_whitespaces(span));
     }
     fn push_patch(&mut self, span: Span, replacement: &'alloc str) {
         #[cfg(test)]
@@ -79,18 +119,19 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         while matches!(self.patches.last(), Some(patch) if patch.span.start >= span.start) {
             self.patches.pop();
         }
-        self.patches.push(Patch {
-            span,
-            replacement,
-        });
+        self.patches.push(Patch { span, replacement });
     }
-    // fn insert_patch(&mut self, span: Span, replacement: &'alloc str) {
-    //     let mut insert_pos = self.patches.len();
-    //     while insert_pos > 0 && self.patches[insert_pos - 1].span.end > span.start {
-    //         insert_pos -= 1
-    //     };
-    //     self.
-    // }
+    fn insert_patch(&mut self, span: Span, replacement: &'alloc str) {
+        let mut insert_pos = self.patches.len();
+        while insert_pos > 0 && self.patches[insert_pos - 1].span.end > span.start {
+            insert_pos -= 1
+        };
+        #[cfg(test)]
+        if let Some(patch_after) = self.patches.get(insert_pos) {
+            assert!(span.end <= patch_after.span.start);
+        }
+        self.patches.insert(insert_pos, Patch { span, replacement });
+    }
     // fn insert_strip(&mut self, span: Span) {
     //     self.insert_patch(span, "");
     // }
@@ -99,17 +140,76 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         self.source.as_bytes()
     }
 
+
     fn cur_scope(&self) -> &Scope {
         self.scope_stack.last().unwrap()
     }
     fn cur_scope_mut(&mut self) -> &mut Scope {
         self.scope_stack.last_mut().unwrap()
     }
-    fn expand_right_whitespace(&self, span: &mut Span) {
-        let whitespace_len = skip_whitespaces(&self.source.as_bytes()[span.end as usize..]);
-        span.end += whitespace_len as u32
+    fn expand_right_whitespaces(&self, span: Span) -> Span {
+        let whitespace_len = skip_whitespace(&self.source_bytes()[span.end as usize..]);
+        Span::new(span.start, span.end + whitespace_len as u32)
+    }
+    fn expand_left_whitespaces(&self, span: Span) -> Span {
+        let left_whitespace_start =
+            skip_ending_whitespace(&self.source_bytes()[..span.start as usize]);
+        Span::new(left_whitespace_start as u32, span.end)
     }
 
+    fn strip_specifier(&mut self, span: Span) {
+        let mut span_to_strip = self.expand_right_whitespaces(span);
+        if self.source_bytes().get(span_to_strip.end as usize).copied() == Some(b',') {
+            span_to_strip.end += 1;
+            span_to_strip = self.expand_left_whitespaces(span_to_strip);
+        }
+        self.push_strip(span_to_strip);
+    }
+
+    fn non_block_body_asi(&mut self, span: Span) {
+        let Some(last_patch) = self.patches.last_mut() else {
+            return;
+        };
+        if last_patch.span == span && last_patch.replacement.is_empty() {
+            last_patch.replacement = ";"
+        }
+    }
+
+    fn statement_asi(&mut self, span: Span) {
+        let mut is_first = true;
+        if let Some(last_statement) = &self.cur_scope().last_statement {
+            is_first = false;
+            
+            if let (Some(StatementPatch { index, kind }), b'(' | b'[' | b'`' | b'+' | b'-' | b'/') = (
+                &last_statement.patch,
+                self.source.as_bytes()[span.start as usize],
+            ) {
+                let need_asi = matches!((kind, last_statement.is_first), (StatementStripKind::Whole, false) | (StatementStripKind::Tail, _));
+                if need_asi {
+                    let index = *index;
+                    // TODO: Handle StatementStripKind::Tail (example: let a = 1 as string) with fewer first charactor matches.
+                    let patch = &mut self.patches.as_mut_slice()[index];
+                    if patch.replacement.is_empty() {
+                        patch.replacement = ";"
+                    } else {
+                        patch.replacement = format!(in self.allocator, "{};", patch.replacement).into_bump_str();
+                    }
+                }
+            }
+        }
+        let mut current_stmt_patch: Option<StatementPatch> = None;
+        if let Some(last_patch) = self.patches.last() {
+            let index = self.patches.len() - 1;
+            if last_patch.span.end == span.end {
+                if last_patch.span.start == span.start {
+                    current_stmt_patch = Some(StatementPatch { index, kind: StatementStripKind::Whole })
+                } else {
+                    current_stmt_patch = Some(StatementPatch { index, kind: StatementStripKind::Tail })
+                }
+            }
+        }
+        self.cur_scope_mut().last_statement = Some(LastStatement { span, is_first, patch: current_stmt_patch });
+    }
 }
 
 impl<'source, 'alloc, 'ast> ParserHandler<'ast, VoidAllocator> for StripHandler<'source, 'alloc> {
@@ -137,7 +237,64 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         }
     }
 
-    fn handle_ts_interface_declaration(&mut self, interface_decl: &TSInterfaceDeclaration<'ast, VoidAllocator>) {
+    fn handle_ts_export_assignment(&mut self, assignment: &TSExportAssignment<'ast, VoidAllocator>) {
+        self.insert_patch(Span::new(assignment.span.start, assignment.expression.span().start), "module.exports = ");
+    }
+
+    fn handle_export_specifier(&mut self, specifier: &ExportSpecifier<'ast>) {
+        if specifier.export_kind.is_type() {
+            self.strip_specifier(specifier.span);
+        }
+    }
+    fn handle_import_specifier(&mut self, specifier: &ImportSpecifier<'ast>) {
+        if specifier.import_kind.is_type() {
+            self.strip_specifier(specifier.span);
+        }
+    }
+    fn handle_export_named_declaration(
+        &mut self,
+        decl: &ExportNamedDeclaration<'ast, VoidAllocator>,
+    ) {
+        if decl.export_kind.is_type() {
+            self.push_strip(decl.span);
+            return;
+        }
+        let Some(exported_decl) = &decl.declaration else {
+            return;
+        };
+        let Some(last_patch) = self.patches.last() else {
+            return;
+        };
+        if (last_patch.span == exported_decl.span()) {
+            self.push_strip(decl.span());
+        }
+    }
+    fn handle_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'ast, VoidAllocator>) {
+        let Some(last_patch) = self.patches.last() else {
+            return;
+        };
+        if (last_patch.span == decl.declaration.span()) {
+            self.push_strip(decl.span());
+        }
+    }
+    fn handle_export_all_declaration(&mut self, decl: &ExportAllDeclaration<'ast, VoidAllocator>) {
+        if decl.export_kind.is_type() {
+            self.push_strip(decl.span);
+        }
+    }
+    fn handle_ts_class_implements(&mut self, implements: &TSClassImplements<'ast, VoidAllocator>) {
+        self.push_strip_with_right_whitespaces(implements.span);
+    }
+
+    fn handle_variable_declaration(&mut self, decl: &VariableDeclaration<'ast, VoidAllocator>) {
+        if decl.declare {
+            self.push_strip(decl.span);
+        }
+    }
+    fn handle_ts_interface_declaration(
+        &mut self,
+        interface_decl: &TSInterfaceDeclaration<'ast, VoidAllocator>,
+    ) {
         self.push_strip(interface_decl.span);
     }
     fn handle_ts_enum_declaration(&mut self, enum_decl: &TSEnumDeclaration<'ast, VoidAllocator>) {
@@ -145,7 +302,18 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             self.push_strip(enum_decl.span);
         }
     }
-    fn handle_ts_import_equals_declaration(&mut self, decl: &TSImportEqualsDeclaration<'ast, VoidAllocator>) {
+    fn handle_ts_import_equals_declaration(
+        &mut self,
+        decl: &TSImportEqualsDeclaration<'ast, VoidAllocator>,
+    ) {
+        if decl.import_kind.is_type() {
+            self.push_strip(decl.span);
+            return;
+        }
+        let const_span = Span::new(decl.span.start, decl.id.span.start);
+        self.insert_patch(const_span, "const ");
+    }
+    fn handle_import_declaration(&mut self, decl: &ImportDeclaration<'ast, VoidAllocator>) {
         if decl.import_kind.is_type() {
             self.push_strip(decl.span);
         }
@@ -155,11 +323,13 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             self.push_strip(decl.span);
         }
     }
-    fn handle_ts_type_alias_declaration(&mut self, decl: &TSTypeAliasDeclaration<'ast, VoidAllocator>) {
-        if decl.declare {
-            self.push_strip(decl.span);
-        }
+    fn handle_ts_type_alias_declaration(
+        &mut self,
+        decl: &TSTypeAliasDeclaration<'ast, VoidAllocator>,
+    ) {
+        self.push_strip(decl.span);
     }
+
     fn handle_function(&mut self, func: &Function<'ast, VoidAllocator>) {
         if func.declare || func.body.is_none() {
             self.push_strip(func.span);
@@ -167,48 +337,22 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     }
 
     fn handle_statement(&mut self, stmt: &Statement<'ast, VoidAllocator>) {
-        let span = stmt.span();
-        let mut is_first = true;
-        if let Some(last_statement) = &self.cur_scope().last_statement {
-            is_first = false;
-            if let (
-                Some(strip_patch_index),
-                false,
-                b'(' | b'[' | b'`' | b'+' | b'-' | b'/'
-            ) = (
-                last_statement.strip_patch_index,
-                last_statement.is_first,
-                self.source.as_bytes()[span.start as usize]
-            ) {
-                self.patches.as_mut_slice()[strip_patch_index].replacement = ";"
-            }
-        }
-        let mut strip_patch_index = None;
-        if let Some(last_patch) = self.patches.last_mut() {
-            if last_patch.span == span {
-                strip_patch_index = Some(self.patches.len() - 1)
-            } else if last_patch.span.end == span.end {
-                if last_patch.replacement.is_empty() {
-                    last_patch.replacement = ";"
-                } else {
-                    let insert_span = Span::from(last_patch.span.end..last_patch.span.end);
-                    self.patches.push(Patch {
-                        span: insert_span,
-                        replacement: ";",
-                    })
-                }
-            }
-        }
-        self.cur_scope_mut().last_statement = Some(LastStatement { span, is_first, strip_patch_index });
+        self.statement_asi(stmt.span());
     }
 
     fn handle_ts_type_annotation(&mut self, it: &TSTypeAnnotation<'ast, VoidAllocator>) {
         self.push_strip(it.span);
     }
-    fn handle_ts_type_parameter_declaration(&mut self, it: &TSTypeParameterDeclaration<'ast, VoidAllocator>) {
+    fn handle_ts_type_parameter_declaration(
+        &mut self,
+        it: &TSTypeParameterDeclaration<'ast, VoidAllocator>,
+    ) {
         self.push_strip(it.span);
     }
-    fn handle_ts_type_parameter_instantiation(&mut self, it: &TSTypeParameterInstantiation<'ast, VoidAllocator>) {
+    fn handle_ts_type_parameter_instantiation(
+        &mut self,
+        it: &TSTypeParameterInstantiation<'ast, VoidAllocator>,
+    ) {
         self.push_strip(it.span);
     }
     fn handle_ts_as_expression(&mut self, it: &TSAsExpression<'ast, VoidAllocator>) {
@@ -229,30 +373,42 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         }
     }
     fn handle_ts_this_parameter(&mut self, it: &TSThisParameter<'ast, VoidAllocator>) {
-        let whitespace_len = skip_whitespaces(&self.source.as_bytes()[it.span.end as usize..]);
+        let whitespace_len = skip_whitespace(&self.source.as_bytes()[it.span.end as usize..]);
         let mut end = it.span.end as usize + whitespace_len;
         if self.source_bytes().get(end).copied() == Some(b',') {
             end += 1
         }
-        
+
         self.push_strip(Span::new(it.span.start, end as u32));
     }
-    fn handle_ts_type_assertion_annotation(&mut self, annotation: &TSTypeAssertionAnnotation<'ast, VoidAllocator>) {
+    fn handle_ts_type_assertion_annotation(
+        &mut self,
+        annotation: &TSTypeAssertionAnnotation<'ast, VoidAllocator>,
+    ) {
         self.push_strip(annotation.span);
     }
     fn handle_class_element_modifiers(&mut self, modifiers: &ClassElementModifiers) {
-        if !(modifiers.r#abstract || modifiers.declare || modifiers.r#override || modifiers.readonly || modifiers.accessibility.is_some()) {
+        if !(modifiers.r#abstract
+            || modifiers.declare
+            || modifiers.r#override
+            || modifiers.readonly
+            || modifiers.accessibility.is_some())
+        {
             return;
         }
         let replacement = match (modifiers.r#static, modifiers.r#async) {
             (true, true) => "static async ",
             (true, false) => "static ",
             (false, true) => "async ",
-            (false, false) => ""
+            (false, false) => "",
         };
-        let mut span = modifiers.span;
-        self.expand_right_whitespace(&mut span);
-        self.push_patch(span, &replacement);
+        let span = if self.source_bytes()[modifiers.span.start as usize..modifiers.span.end as usize].ends_with(b"accessor") {
+            // TODO: fix on the parser side the exclude accessor from the modifiers
+            modifiers.span.shrink_right(b"accessor".len() as u32)
+        } else {
+            self.expand_right_whitespaces(modifiers.span)
+        };
+        self.push_patch(span, replacement);
         return;
     }
 
@@ -261,5 +417,90 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     }
     fn handle_ts_optional_mark(&mut self, mark: &TSOptionalMark) {
         self.push_strip(mark.span);
+    }
+
+    fn handle_method_definition(&mut self, element: &MethodDefinition<'ast, VoidAllocator>) {
+        if matches!(self.patches.last(), Some(last_patch) if last_patch.span == element.value.span()) {
+            self.push_strip(Span::merge(&element.modifiers.span, &element.span));
+        }
+    }
+    fn handle_property_definition(&mut self, element: &PropertyDefinition<'ast, VoidAllocator>) {
+        if element.modifiers.declare || element.modifiers.r#abstract {
+            self.push_strip(Span::merge(&element.modifiers.span, &element.span));
+        }
+    }
+    fn handle_accessor_property(&mut self, element: &AccessorProperty<'ast, VoidAllocator>) {
+        if element.modifiers.declare || element.modifiers.r#abstract {
+            self.push_strip(Span::merge(&element.modifiers.span, &element.span));
+        }
+    }
+    fn handle_ts_index_signature(&mut self, element: &TSIndexSignature<'ast, VoidAllocator>) {
+        self.push_strip(Span::merge(&element.modifiers.span, &element.span));
+    }
+
+    fn handle_arrow_function_expression(&mut self, arrow_func: &ArrowFunctionExpression<'ast, VoidAllocator>) {
+        // () => <T>{ a: 1 } to
+        // () => ({ a: 1 })
+        if !arrow_func.expression {
+            return;
+        }
+        let body_span = arrow_func.body.span();
+        let source_bytes = self.source_bytes();
+        
+        // () => <....}
+        if !(source_bytes[body_span.start as usize] == b'<' && source_bytes[(body_span.end - 1) as usize] == b'}') {
+            return;
+        }
+
+        let Ok(type_assertion_patch_index) = self.patches.binary_search_by_key(&body_span.start, |patch| patch.span.start) else {
+            #[cfg(test)]
+            panic!("Failed to find the patch of type assertion (<...>) right after arrow (=>). Expected patch start: {}", body_span.start);
+            return;
+        };
+
+        let type_assertion_patch = &mut self.patches.as_mut_slice()[type_assertion_patch_index];
+
+        #[cfg(test)]
+        if !type_assertion_patch.replacement.is_empty() {
+            panic!("The patch replacement of type assertion (<...>) right after arrow (=>) is not empty: {}", type_assertion_patch.replacement);
+        }
+        type_assertion_patch.replacement = "(";
+        self.push_patch(Span::new(body_span.end, body_span.end), ")");
+    }
+    fn handle_if_statement(&mut self, if_stmt: &IfStatement<'ast, VoidAllocator>) {
+        if let (Some(alternate), Some(last_patch)) = (&if_stmt.alternate, self.patches.last_mut()) {
+            if last_patch.span == alternate.span() && last_patch.replacement.is_empty() {
+                last_patch.replacement = ";"
+            }
+        }
+        let consequent_span = if_stmt.consequent.span();
+        let possible_strip_patch_of_consequent = if if_stmt.alternate.is_none() {
+            self.patches.last_mut()
+        } else {
+            if let Ok(index) = self.patches.binary_search_by_key(&consequent_span.start, | patch| patch.span.start) {
+                Some(&mut self.patches.as_mut_slice()[index])
+            } else {
+                None
+            }
+        };
+        let Some(possible_strip_patch_of_consequent) = possible_strip_patch_of_consequent else {
+            return;
+        };
+        if possible_strip_patch_of_consequent.span == if_stmt.consequent.span() && possible_strip_patch_of_consequent.replacement.is_empty() {
+            possible_strip_patch_of_consequent.replacement = ";"
+        }
+    }
+    fn handle_while_statement(&mut self, stmt: &WhileStatement<'ast, VoidAllocator>) {
+        self.non_block_body_asi(stmt.body.span());
+
+    }
+    fn handle_for_statement(&mut self, stmt: &ForStatement<'ast, VoidAllocator>) {
+        self.non_block_body_asi(stmt.body.span());
+    }
+    fn handle_for_in_statement(&mut self, stmt: &ForInStatement<'ast, VoidAllocator>) {
+        self.non_block_body_asi(stmt.body.span());
+    }
+    fn handle_for_of_statement(&mut self, stmt: &ForOfStatement<'ast, VoidAllocator>) {
+        self.non_block_body_asi(stmt.body.span());
     }
 }

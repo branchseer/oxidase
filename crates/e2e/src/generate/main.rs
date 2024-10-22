@@ -1,10 +1,8 @@
 #[path = "../common.rs"]
 mod common;
-mod js;
 mod ts;
 
-use crate::common::{generated_folder_path, test_repos_path, Language, SourceRecord};
-use js::detect_js_kind;
+use crate::common::{generated_folder_path, test_repos_path, SourceRecord};
 use oxidase::ModuleKind;
 use rayon::prelude::*;
 use rayon::{in_place_scope, Scope};
@@ -74,7 +72,7 @@ fn main() {
             .unwrap()
             .to_owned();
         let is_incompatible_js = incompatible_js_paths.contains(path.as_str());
-        let (language, module_kind) = if is_incompatible_js || name.ends_with(b"ts") {
+        let module_kind = {
             let Ok(mut source) = fs::read_to_string(full_path) else {
                 return;
             };
@@ -87,17 +85,7 @@ fn main() {
                 transpile_ret.code,
             )
             .unwrap();
-            (Language::Ts, transpile_ret.module_kind)
-        } else if name.ends_with(b"js") {
-            let Ok(source) = fs::read_to_string(full_path) else {
-                return;
-            };
-            let Some(module_kind) = detect_js_kind(source) else {
-                return;
-            };
-            (Language::Js, module_kind)
-        } else {
-            panic!("Unexpected path: {:?}", full_path);
+            transpile_ret.module_kind
         };
         tls_records
             .get_or(|| Default::default())
@@ -105,7 +93,6 @@ fn main() {
             .push(SourceRecord {
                 id,
                 path,
-                language,
                 module_kind,
             })
     };
@@ -118,9 +105,6 @@ fn main() {
                 (name.ends_with(b".ts") && !name.ends_with(b".d.ts"))
                     || (name.ends_with(b".mts") && !name.ends_with(b".d.mts"))
                     || (name.ends_with(b".cts") && !name.ends_with(b".d.cts"))
-                    || (name.ends_with(b".js"))
-                    || (name.ends_with(b".cjs"))
-                    || (name.ends_with(b".mjs"))
             },
             &handle_file,
         );

@@ -41,13 +41,6 @@ pub fn test_repos_path() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("test_repos")
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "camelCase")]
-pub enum Language {
-    Js,
-    Ts,
-}
-
 #[derive(Deserialize, Serialize)]
 #[serde(remote = "ModuleKind", rename_all = "camelCase")]
 pub enum ModuleKindDef {
@@ -59,7 +52,6 @@ pub enum ModuleKindDef {
 pub struct SourceRecord {
     pub id: u64,
     pub path: String,
-    pub language: Language,
     #[serde(with = "ModuleKindDef")]
     pub module_kind: ModuleKind,
 }

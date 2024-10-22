@@ -10,8 +10,8 @@ use oxc_allocator::Vec;
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::{ParseOptions, Parser};
 pub use oxc_span::SourceType;
-use oxc_span::{ModuleKind as OxcModuleKind, Span};
-use patch::{apply_patches, Patch};
+use oxc_span::ModuleKind as OxcModuleKind;
+use patch::apply_patches;
 pub use source::Source;
 use handler::StripHandler;
 
@@ -66,8 +66,6 @@ pub fn transpile<'alloc>(
     let errors = std::mem::take(&mut parser_ret.errors);
 
     let patches = parser_ret.handler.into_patches();
-
-    // drop(parser_ret);
 
     apply_patches(allocator, &patches, options.prefer_blank_space, source);
 

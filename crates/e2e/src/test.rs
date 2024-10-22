@@ -3,10 +3,11 @@
 mod common;
 mod format_ts;
 
-use crate::common::{generated_folder_path, test_repos_path, Language, SourceRecord};
+use crate::common::{generated_folder_path, test_repos_path, SourceRecord};
 use crate::format_ts::format_ts;
 use core::str;
 use googletest::{prelude::*, test};
+use oxidase::{transpile, Allocator, Source, SourceType, TranspileOptions};
 // use oxidase::{diagnostic::Strict, transpile};
 use rayon::prelude::*;
 use serde::Deserialize;
@@ -68,85 +69,75 @@ fn oxidase_e2e() {
             ongoing_ids.lock().unwrap().insert(record.id);
             let _logger = OngoingRemover(record.id, ongoing_ids.clone());
             thread_local! {
-                static OUT_BUF: RefCell<String> = RefCell::new(String::new());
+                static ALLOCATOR: Allocator = Allocator::default();
             }
-            OUT_BUF.with_borrow_mut(|out_buf| {
-                out_buf.clear();
-                match record.language {
-                    Language::Js => {
-                        let source = fs::read(test_repos_folder.join(&record.path)).unwrap();
-                        let source = str::from_utf8(&source).unwrap();
-                        // match transpile(record.module_kind, source, out_buf, &diagnostic) {
-                        //     Ok(()) => {}
-                        //     Err(error) => {
-                        //         return Some(
-                        //             to_failure(fail!(
-                        //                 "Transpiling {} failed with error: {:?}",
-                        //                 &record.path,
-                        //                 error
-                        //             ))
-                        //             .unwrap(),
-                        //         )
-                        //     }
-                        // };
-                        to_failure(verify_eq!(out_buf.as_str(), source).with_failure_message(
-                            move || {
-                                format!(
-                                    "Incorrect transpile output for js file ({}): {}",
-                                    record.id, record.path
-                                )
-                            },
+            ALLOCATOR.with(|allocator| {
+                let input =
+                    fs::read_to_string(&generated_folder.join(format!("{}.input.txt", record.id)))
+                        .unwrap();
+                let expected_output =
+                    fs::read_to_string(&generated_folder.join(format!("{}.output.txt", record.id)))
+                        .unwrap();
+
+                let mut source = Source::Borrowed(input.as_str());
+                let source_type =
+                    SourceType::ts().with_module(record.module_kind == oxidase::ModuleKind::Module);
+
+                let transpile_ret = transpile(
+                    allocator,
+                    TranspileOptions {
+                        source_type,
+                        prefer_blank_space: true,
+                    },
+                    &mut source,
+                );
+
+                if !transpile_ret.errors.is_empty() {
+                    return Some(
+                        to_failure(fail!(
+                            "Transpiling {} failed with errors: {:?}",
+                            &record.path,
+                            transpile_ret.errors
                         ))
-                    }
-                    Language::Ts => {
-                        let input = fs::read_to_string(
-                            &generated_folder.join(format!("{}.input.txt", record.id)),
-                        )
-                        .unwrap();
-                        let expected_output = fs::read_to_string(
-                            &generated_folder.join(format!("{}.output.txt", record.id)),
-                        )
-                        .unwrap();
-
-                        // match transpile(record.module_kind, &input, out_buf, &diagnostic) {
-                        //     Ok(()) => {}
-                        //     Err(error) => {
-                        //         return Some(
-                        //             to_failure(fail!(
-                        //                 "Transpiling {} failed with error: {:?}",
-                        //                 &record.path,
-                        //                 error
-                        //             ))
-                        //             .unwrap(),
-                        //         )
-                        //     }
-                        // };
-
-                        let formatted_out = match format_ts(out_buf.clone(), record.module_kind) {
-                            Ok(ok) => ok,
-                            Err(err) => {
-                                return Some(
-                                    to_failure(fail!(
-                                        "Format {} failed with error: {:?}",
-                                        &record.path,
-                                        err
-                                    ))
-                                    .unwrap(),
-                                )
-                            }
-                        };
-                        to_failure(
-                            verify_eq!(&formatted_out, &expected_output).with_failure_message(
-                                move || {
-                                    format!(
-                                        "Incorrect transpile output for ts file({}): {}",
-                                        record.id, record.path
-                                    )
-                                },
-                            ),
-                        )
-                    }
+                        .unwrap(),
+                    );
                 }
+                // match transpile(record.module_kind, &input, out_buf, &diagnostic) {
+                //     Ok(()) => {}
+                //     Err(error) => {
+                //         return Some(
+                //             to_failure(fail!(
+                //                 "Transpiling {} failed with error: {:?}",
+                //                 &record.path,
+                //                 error
+                //             ))
+                //             .unwrap(),
+                //         )
+                //     }
+                // };
+
+                let formatted_out = match format_ts(source.as_str(), record.module_kind) {
+                    Ok(ok) => ok,
+                    Err(err) => {
+                        return Some(
+                            to_failure(fail!(
+                                "Format the output of {} failed.\n----- Output -----\n{}\n----- error -----n{:?}",
+                                &record.path,
+                                source.as_str(),
+                                err
+                            ))
+                            .unwrap(),
+                        )
+                    }
+                };
+                to_failure(
+                    verify_eq!(&formatted_out, &expected_output).with_failure_message(move || {
+                        format!(
+                            "Incorrect transpile output for ts file({}): {}",
+                            record.id, record.path
+                        )
+                    }),
+                )
             })
         })
         .collect_vec_list();

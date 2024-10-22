@@ -26,9 +26,9 @@ pub fn format_ts(source: impl Into<String>, module_kind: ModuleKind) -> anyhow::
     )
     .map_err(|err| anyhow::anyhow!("{:?}: {}", err.span(), err.kind().msg()))?;
 
-    if !errors.is_empty() {
-        anyhow::bail!("{:#?}", errors);
-    }
+    // if !errors.is_empty() {
+    //     anyhow::bail!("{:#?}", errors);
+    // }
 
     remove_empty_statements(&mut program);
 

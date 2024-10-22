@@ -7,6 +7,33 @@ fn strip_stmt() {
     check_transpile("a;interface X{} b;declare function x();c", "a; b;c");
 }
 
+
+#[test]
+fn strip_type_alias() {
+    check_transpile("type A = string", "");
+}
+
+
+#[test]
+fn strip_export_stripped_decl() {
+    check_transpile("export type A = string", "");
+}
+
+#[test]
+fn strip_stripped_decl_asi() {
+    check_transpile("var a = 1\nexport type A = string\n/a/.test()", "var a = 1\n;\n/a/.test()");
+}
+
+#[test]
+fn strip_import_eq() {
+    check_transpile("import x = require('a')", "const x = require('a')");
+}
+
+#[test]
+fn strip_export_eq() {
+    check_transpile("var x = 1 as string; export = x as string;", "var x = 1; module.exports = x;");
+}
+
 #[test]
 fn strip_declare_function_with_type_annotation() {
     check_transpile("declare function x(a: string): string", "");
@@ -32,6 +59,11 @@ fn strip_type_param() {
 #[test]
 fn strip_type_force_cast() {
     check_transpile("1 as A;2 satisfies B;", "1;2;");
+}
+
+#[test]
+fn strip_import_export_type_specifier() {
+
 }
 
 #[test]
@@ -78,6 +110,86 @@ fn strip_method_modifiers() {
 }
 
 #[test]
+fn strip_import_type_single() {
+    check_transpile("import { type A } from 'a'", "import { } from 'a'");
+}
+
+#[test]
+fn strip_import_type_trailing_comma() {
+    check_transpile("import { A, type A, } from 'a'", "import { A, } from 'a'");
+}
+#[test]
+fn strip_import_type_first() {
+    check_transpile("import { type A, B } from 'a'", "import { B } from 'a'");
+}
+
+#[test]
+fn strip_import_type_successive() {
+    check_transpile("import { type B, type A, } from 'a'", "import { } from 'a'");
+}
+
+#[test]
+fn strip_index_signature_with_modifiers() {
+    check_transpile("class A { static [a: string]: string }", "class A {  }");
+}
+
+#[test]
 fn strip_var_definite() {
     check_transpile("var a! = null", "var a = null");
+}
+
+#[test]
+fn strip_expr_definite() {
+    check_transpile("var a = null!;", "var a = null;");
+}
+
+#[test]
+fn strip_class_implements() {
+    check_transpile("class A implements B, C { }", "class A { }");
+}
+
+#[test]
+fn strip_method_overload() {
+    check_transpile("class A { a() }", "class A {  }");
+}
+
+#[test]
+fn strip_abstract_prop() {
+    check_transpile("class A { abstract a: string }", "class A {  }");
+}
+
+#[test]
+fn strip_abstract_accessor() {
+    check_transpile("class A { abstract accessor a: string }", "class A {  }");
+}
+
+#[test]
+fn strip_accessor_modifier() {
+    check_transpile("class Z { private accessor a; }", "class Z { accessor a; }");
+}
+
+#[test]
+fn strip_getter_modifier() {
+    check_transpile("class Z { private get a() {} }", "class Z { get a() {} }");
+}
+
+
+#[test]
+fn strip_function_overload() {
+    check_transpile("function a()", "");
+}
+
+#[test]
+fn strip_export_decl() {
+    check_transpile("export function a()", "");
+}
+
+#[test]
+fn strip_export_default_decl() {
+    check_transpile("export default function a()", "");
+}
+
+#[test]
+fn wrap_object_with_type_assertion_after_arrow() {
+    check_transpile("() => <Type>{ a: 1 }", "() => ({ a: 1 })");
 }

@@ -198,31 +198,11 @@ mod tests {
         let ret = transpile_ts(Path::new(""), &mut source).unwrap();
         assert_eq!(
             source,
-            "declare enum A {}\nfoo;;\nbar;\ndeclare namespace B {;};export = 1"
+            ";\nfoo;;\nbar;\n;\n;export = 1"
         );
         assert_eq!(ret.code, "foo;\nbar;\nmodule.exports = 1;\n");
     }
-    #[test]
-    fn hello() {
-        let mut source = String::from(
-            r#"module Z.M {
-    export function bar() {
-        return "";
-    }
-}
-module A.M {
-    import M = Z.M;
-    export function bar() {
-    }
-    M.bar(); // Should call Z.M.bar
-}"#,
-        );
-        let mut source = std::fs::read_to_string("/Users/patr0nus/code/oxidase/crates/e2e/test_repos/TypeScript/tests/cases/compiler/recursiveExportAssignmentAndFindAliasedType7.ts").unwrap();
 
-        let source_before = source.clone();
-        let ret = transpile_ts(Path::new(""), &mut source).unwrap();
-        eprintln!("{}", source);
-    }
     #[test]
     fn preserve_imports() {
         let mut source = String::from(
