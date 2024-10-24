@@ -65,3 +65,46 @@ fn for_in_asi() {
 fn for_of_asi() {
     check_transpile("for (var a of []) type A = string", "for (var a of []) ;")
 }
+
+
+
+#[test]
+fn class_element_asi() {
+    check_transpile(r#"
+class A {
+    a = 1
+    abstract b
+    ['c'](){}
+}"#, r#"
+class A {
+    a = 1
+    ;
+    ['c'](){}
+}"#)
+}
+
+#[test]
+fn modifier_computed_prop_asi() {
+    check_transpile(r#"
+class A {
+    a = 1
+    private ['c'](){}
+}"#, r#"
+class A {
+    a = 1
+    ;['c'](){}
+}"#)
+}
+
+#[test]
+fn modifier_generator_asi() {
+    check_transpile(r#"
+class A {
+    a = 1
+    private *c(){}
+}"#, r#"
+class A {
+    a = 1
+    ;*c(){}
+}"#)
+}

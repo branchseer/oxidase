@@ -1,10 +1,12 @@
+use std::ops::Range;
+
 use crate::patch::Patch;
 use bumpalo::format;
 use oxc_allocator::{Allocator, Vec};
-use oxc_ast::ast::*;
 use oxc_ast::handle::Handler as AstHandler;
+use oxc_ast::{ast::*, AstScopeNode, ScopeType};
 use oxc_parser::Handler as ParserHandler;
-use oxc_span::ast_alloc::VoidAllocator;
+use oxc_span::ast_alloc::{AstAllocator, VoidAllocator};
 use oxc_span::GetSpan;
 
 const WHITESPACES: [&str; 25] = [
@@ -28,6 +30,15 @@ fn skip_whitespace(source: &[u8]) -> usize {
         break;
     }
     idx
+}
+
+trait SpanExt {
+    fn range(self) -> Range<usize>;
+}
+impl SpanExt for Span {
+    fn range(self) -> Range<usize> {
+        self.start as usize..self.end as usize
+    }
 }
 
 fn skip_ending_whitespace(source: &[u8]) -> usize {
@@ -61,7 +72,7 @@ pub struct StripHandler<'source, 'alloc> {
     allocator: &'alloc Allocator,
 
     patches: Vec<'alloc, Patch<'alloc>>,
-    scope_stack: Vec<'alloc, Scope>,
+    scope_stack: Vec<'alloc, Scope<'alloc>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -69,6 +80,8 @@ pub struct StripHandlerCheckpoint {
     patch_len: usize,
     scope_stack_len: usize,
 }
+
+#[derive(Debug)]
 
 struct LastStatement {
     span: Span,
@@ -78,6 +91,7 @@ struct LastStatement {
     patch: Option<StatementPatch>,
 }
 
+#[derive(Debug)]
 struct StatementPatch {
     index: usize,
     kind: StatementStripKind,
@@ -89,9 +103,32 @@ enum StatementStripKind {
     Tail,
 }
 
-#[derive(Default)]
-struct Scope {
+#[derive(Debug)]
+struct Scope<'alloc> {
     last_statement: Option<LastStatement>,
+    kind: ScopeKind<'alloc>,
+}
+
+#[derive(Debug)]
+enum SuperCallFindingState {
+    NotFound,
+    ExpressionFound(Span),
+    PlaceholderPatchInserted(usize),
+}
+
+#[derive(Debug)]
+enum ScopeKind<'alloc> {
+    Other,
+    Class {
+        index_of_patch_at_start: Option<usize>,
+        parameter_prop_id_spans: Vec<'alloc, Span>,
+        is_last_property_key_constructor: bool,
+        current_element_modifiers_patch_index: Option<usize>,
+    },
+    Constructor {
+        super_call_finding_state: SuperCallFindingState,
+        body_span: Option<Span>,
+    },
 }
 
 impl<'source, 'alloc> StripHandler<'source, 'alloc> {
@@ -125,7 +162,7 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         let mut insert_pos = self.patches.len();
         while insert_pos > 0 && self.patches[insert_pos - 1].span.end > span.start {
             insert_pos -= 1
-        };
+        }
         #[cfg(test)]
         if let Some(patch_after) = self.patches.get(insert_pos) {
             assert!(span.end <= patch_after.span.start);
@@ -140,11 +177,10 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         self.source.as_bytes()
     }
 
-
-    fn cur_scope(&self) -> &Scope {
+    fn cur_scope(&self) -> &Scope<'alloc> {
         self.scope_stack.last().unwrap()
     }
-    fn cur_scope_mut(&mut self) -> &mut Scope {
+    fn cur_scope_mut(&mut self) -> &mut Scope<'alloc> {
         self.scope_stack.last_mut().unwrap()
     }
     fn expand_right_whitespaces(&self, span: Span) -> Span {
@@ -175,16 +211,42 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         }
     }
 
+    fn class_element_modifiers_asi(&mut self) {
+        let ScopeKind::Class {
+            current_element_modifiers_patch_index,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        else {
+            if cfg!(test) {
+                unreachable!();
+            }
+            return;
+        };
+        let Some(current_element_modifiers_patch_index) = *current_element_modifiers_patch_index
+        else {
+            return;
+        };
+        let modifiers_patch =
+            &mut self.patches.as_mut_slice()[current_element_modifiers_patch_index];
+        if !modifiers_patch.replacement.starts_with(";") {
+            modifiers_patch.replacement =
+                format!(in self.allocator, ";{}", modifiers_patch.replacement).into_bump_str();
+        }
+    }
+
     fn statement_asi(&mut self, span: Span) {
         let mut is_first = true;
         if let Some(last_statement) = &self.cur_scope().last_statement {
             is_first = false;
-            
+
             if let (Some(StatementPatch { index, kind }), b'(' | b'[' | b'`' | b'+' | b'-' | b'/') = (
                 &last_statement.patch,
                 self.source.as_bytes()[span.start as usize],
             ) {
-                let need_asi = matches!((kind, last_statement.is_first), (StatementStripKind::Whole, false) | (StatementStripKind::Tail, _));
+                let need_asi = matches!(
+                    (kind, last_statement.is_first),
+                    (StatementStripKind::Whole, false) | (StatementStripKind::Tail, _)
+                );
                 if need_asi {
                     let index = *index;
                     // TODO: Handle StatementStripKind::Tail (example: let a = 1 as string) with fewer first charactor matches.
@@ -192,7 +254,8 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
                     if patch.replacement.is_empty() {
                         patch.replacement = ";"
                     } else {
-                        patch.replacement = format!(in self.allocator, "{};", patch.replacement).into_bump_str();
+                        patch.replacement =
+                            format!(in self.allocator, "{};", patch.replacement).into_bump_str();
                     }
                 }
             }
@@ -202,13 +265,23 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
             let index = self.patches.len() - 1;
             if last_patch.span.end == span.end {
                 if last_patch.span.start == span.start {
-                    current_stmt_patch = Some(StatementPatch { index, kind: StatementStripKind::Whole })
+                    current_stmt_patch = Some(StatementPatch {
+                        index,
+                        kind: StatementStripKind::Whole,
+                    })
                 } else {
-                    current_stmt_patch = Some(StatementPatch { index, kind: StatementStripKind::Tail })
+                    current_stmt_patch = Some(StatementPatch {
+                        index,
+                        kind: StatementStripKind::Tail,
+                    })
                 }
             }
         }
-        self.cur_scope_mut().last_statement = Some(LastStatement { span, is_first, patch: current_stmt_patch });
+        self.cur_scope_mut().last_statement = Some(LastStatement {
+            span,
+            is_first,
+            patch: current_stmt_patch,
+        });
     }
 }
 
@@ -227,18 +300,75 @@ impl<'source, 'alloc, 'ast> ParserHandler<'ast, VoidAllocator> for StripHandler<
 }
 
 impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'source, 'alloc> {
-    fn enter_scope(&mut self) {
-        self.scope_stack.push(Scope::default());
+    fn enter_scope<T: AstScopeNode>(&mut self) {
+        let kind = match T::SCOPE_TYPE {
+            ScopeType::Class => ScopeKind::Class {
+                index_of_patch_at_start: None,
+                parameter_prop_id_spans: self.allocator.vec(),
+                is_last_property_key_constructor: false,
+                current_element_modifiers_patch_index: None,
+            },
+            ScopeType::Function
+                if matches!(
+                    self.scope_stack.last(),
+                    Some(Scope {
+                        kind: ScopeKind::Class {
+                            is_last_property_key_constructor: true,
+                            ..
+                        },
+                        ..
+                    })
+                ) =>
+            {
+                ScopeKind::Constructor {
+                    super_call_finding_state: SuperCallFindingState::NotFound,
+                    body_span: None,
+                }
+            }
+            _ => ScopeKind::Other,
+        };
+        self.scope_stack.push(Scope {
+            last_statement: None,
+            kind,
+        });
     }
     fn leave_scope(&mut self) {
-        let scope = self.scope_stack.pop();
-        if cfg!(test) {
-            scope.unwrap();
+        let scope = self.scope_stack.pop().unwrap();
+        match &scope.kind {
+            ScopeKind::Constructor {
+                super_call_finding_state,
+                body_span,
+            } => {
+                dbg!(super_call_finding_state, body_span);
+            }
+            _ => {}
         }
     }
 
-    fn handle_ts_export_assignment(&mut self, assignment: &TSExportAssignment<'ast, VoidAllocator>) {
-        self.insert_patch(Span::new(assignment.span.start, assignment.expression.span().start), "module.exports = ");
+    fn handle_ts_export_assignment(
+        &mut self,
+        assignment: &TSExportAssignment<'ast, VoidAllocator>,
+    ) {
+        self.insert_patch(
+            Span::new(assignment.span.start, assignment.expression.span().start),
+            "module.exports = ",
+        );
+    }
+
+    fn handle_call_expression(&mut self, expr: &CallExpression<'ast, VoidAllocator>) {
+        let ScopeKind::Constructor {
+            super_call_finding_state,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        else {
+            return;
+        };
+        if !matches!(super_call_finding_state, SuperCallFindingState::NotFound) {
+            return;
+        }
+        if let Expression::Super(_) = &expr.callee {
+            *super_call_finding_state = SuperCallFindingState::ExpressionFound(expr.span)
+        };
     }
 
     fn handle_export_specifier(&mut self, specifier: &ExportSpecifier<'ast>) {
@@ -269,7 +399,10 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             self.push_strip(decl.span());
         }
     }
-    fn handle_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'ast, VoidAllocator>) {
+    fn handle_export_default_declaration(
+        &mut self,
+        decl: &ExportDefaultDeclaration<'ast, VoidAllocator>,
+    ) {
         let Some(last_patch) = self.patches.last() else {
             return;
         };
@@ -336,8 +469,53 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         }
     }
 
+    fn handle_class_element(&mut self, element: &ClassElement<'ast, VoidAllocator>) {
+        self.statement_asi(element.span());
+        let ScopeKind::Class {
+            current_element_modifiers_patch_index,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        else {
+            if cfg!(test) {
+                panic!(
+                    "Class element encountered in non-class scope: {:?}",
+                    element.span()
+                );
+            }
+            return;
+        };
+        *current_element_modifiers_patch_index = None;
+    }
+
     fn handle_statement(&mut self, stmt: &Statement<'ast, VoidAllocator>) {
-        self.statement_asi(stmt.span());
+        let stmt_span = stmt.span();
+        self.statement_asi(stmt_span);
+        let ScopeKind::Constructor {
+            super_call_finding_state,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        else {
+            return;
+        };
+        let SuperCallFindingState::ExpressionFound(super_call_expr_span) =
+            &super_call_finding_state
+        else {
+            return;
+        };
+        let Statement::ExpressionStatement(expr_stmt) = &stmt else {
+            return;
+        };
+        if *super_call_expr_span != expr_stmt.span() {
+            *super_call_finding_state =
+                SuperCallFindingState::PlaceholderPatchInserted(self.patches.len());
+            self.patches.push(Patch {
+                span: Span::new(stmt_span.end, stmt_span.end),
+                replacement: "",
+            });
+        } else {
+            // console.log(super())
+            *super_call_finding_state = SuperCallFindingState::NotFound;
+        }
     }
 
     fn handle_ts_type_annotation(&mut self, it: &TSTypeAnnotation<'ast, VoidAllocator>) {
@@ -367,7 +545,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         }
     }
     fn handle_class(&mut self, it: &Class<'ast, VoidAllocator>) {
-        if it.modifiers.declare {
+        if it.modifiers.is_some_and(|modifiers| modifiers.declare) {
             self.push_strip(it.span);
             return;
         }
@@ -402,14 +580,30 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             (false, true) => "async ",
             (false, false) => "",
         };
-        let span = if self.source_bytes()[modifiers.span.start as usize..modifiers.span.end as usize].ends_with(b"accessor") {
-            // TODO: fix on the parser side the exclude accessor from the modifiers
+        let span = if self.source_bytes()
+            [modifiers.span.start as usize..modifiers.span.end as usize]
+            .ends_with(b"accessor")
+        {
+            // TODO: fix on the parser side to exclude accessor from the modifiers
             modifiers.span.shrink_right(b"accessor".len() as u32)
         } else {
             self.expand_right_whitespaces(modifiers.span)
         };
         self.push_patch(span, replacement);
-        return;
+        let ScopeKind::Class {
+            current_element_modifiers_patch_index,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        else {
+            if cfg!(test) {
+                panic!(
+                    "Class element modifiers encountered in non-class scope: {:?}",
+                    modifiers.span
+                );
+            }
+            return;
+        };
+        *current_element_modifiers_patch_index = Some(self.patches.len() - 1);
     }
 
     fn handle_ts_definite_mark(&mut self, mark: &TSDefiniteMark) {
@@ -420,25 +614,43 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     }
 
     fn handle_method_definition(&mut self, element: &MethodDefinition<'ast, VoidAllocator>) {
-        if matches!(self.patches.last(), Some(last_patch) if last_patch.span == element.value.span()) {
-            self.push_strip(Span::merge(&element.modifiers.span, &element.span));
+        if matches!(self.patches.last(), Some(last_patch) if last_patch.span == element.value.span())
+        {
+            self.push_strip(element.span);
+            return;
+        }
+        if element.kind.is_method() && (element.value.generator || element.key.is_expression()) {
+            self.class_element_modifiers_asi();
         }
     }
     fn handle_property_definition(&mut self, element: &PropertyDefinition<'ast, VoidAllocator>) {
-        if element.modifiers.declare || element.modifiers.r#abstract {
-            self.push_strip(Span::merge(&element.modifiers.span, &element.span));
+        if element
+            .modifiers
+            .is_some_and(|modifiers| modifiers.declare || modifiers.r#abstract)
+        {
+            self.push_strip(element.span);
+            return;
+        }
+        if element.key.is_expression() {
+            self.class_element_modifiers_asi();
         }
     }
     fn handle_accessor_property(&mut self, element: &AccessorProperty<'ast, VoidAllocator>) {
-        if element.modifiers.declare || element.modifiers.r#abstract {
-            self.push_strip(Span::merge(&element.modifiers.span, &element.span));
+        if element
+            .modifiers
+            .is_some_and(|modifiers| modifiers.declare || modifiers.r#abstract)
+        {
+            self.push_strip(element.span);
         }
     }
     fn handle_ts_index_signature(&mut self, element: &TSIndexSignature<'ast, VoidAllocator>) {
-        self.push_strip(Span::merge(&element.modifiers.span, &element.span));
+        self.push_strip(element.span);
     }
 
-    fn handle_arrow_function_expression(&mut self, arrow_func: &ArrowFunctionExpression<'ast, VoidAllocator>) {
+    fn handle_arrow_function_expression(
+        &mut self,
+        arrow_func: &ArrowFunctionExpression<'ast, VoidAllocator>,
+    ) {
         // () => <T>{ a: 1 } to
         // () => ({ a: 1 })
         if !arrow_func.expression {
@@ -446,13 +658,18 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         }
         let body_span = arrow_func.body.span();
         let source_bytes = self.source_bytes();
-        
+
         // () => <....}
-        if !(source_bytes[body_span.start as usize] == b'<' && source_bytes[(body_span.end - 1) as usize] == b'}') {
+        if !(source_bytes[body_span.start as usize] == b'<'
+            && source_bytes[(body_span.end - 1) as usize] == b'}')
+        {
             return;
         }
 
-        let Ok(type_assertion_patch_index) = self.patches.binary_search_by_key(&body_span.start, |patch| patch.span.start) else {
+        let Ok(type_assertion_patch_index) = self
+            .patches
+            .binary_search_by_key(&body_span.start, |patch| patch.span.start)
+        else {
             #[cfg(test)]
             panic!("Failed to find the patch of type assertion (<...>) right after arrow (=>). Expected patch start: {}", body_span.start);
             return;
@@ -467,6 +684,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         type_assertion_patch.replacement = "(";
         self.push_patch(Span::new(body_span.end, body_span.end), ")");
     }
+
     fn handle_if_statement(&mut self, if_stmt: &IfStatement<'ast, VoidAllocator>) {
         if let (Some(alternate), Some(last_patch)) = (&if_stmt.alternate, self.patches.last_mut()) {
             if last_patch.span == alternate.span() && last_patch.replacement.is_empty() {
@@ -477,7 +695,10 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         let possible_strip_patch_of_consequent = if if_stmt.alternate.is_none() {
             self.patches.last_mut()
         } else {
-            if let Ok(index) = self.patches.binary_search_by_key(&consequent_span.start, | patch| patch.span.start) {
+            if let Ok(index) = self
+                .patches
+                .binary_search_by_key(&consequent_span.start, |patch| patch.span.start)
+            {
                 Some(&mut self.patches.as_mut_slice()[index])
             } else {
                 None
@@ -486,13 +707,14 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         let Some(possible_strip_patch_of_consequent) = possible_strip_patch_of_consequent else {
             return;
         };
-        if possible_strip_patch_of_consequent.span == if_stmt.consequent.span() && possible_strip_patch_of_consequent.replacement.is_empty() {
+        if possible_strip_patch_of_consequent.span == if_stmt.consequent.span()
+            && possible_strip_patch_of_consequent.replacement.is_empty()
+        {
             possible_strip_patch_of_consequent.replacement = ";"
         }
     }
     fn handle_while_statement(&mut self, stmt: &WhileStatement<'ast, VoidAllocator>) {
         self.non_block_body_asi(stmt.body.span());
-
     }
     fn handle_for_statement(&mut self, stmt: &ForStatement<'ast, VoidAllocator>) {
         self.non_block_body_asi(stmt.body.span());
@@ -502,5 +724,42 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     }
     fn handle_for_of_statement(&mut self, stmt: &ForOfStatement<'ast, VoidAllocator>) {
         self.non_block_body_asi(stmt.body.span());
+    }
+
+    fn handle_property_key(&mut self, prop_key: &PropertyKey<'ast, VoidAllocator>) {
+        let ScopeKind::Class {
+            is_last_property_key_constructor,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        else {
+            return;
+        };
+        let span = prop_key.span();
+        *is_last_property_key_constructor = &self.source.as_bytes()[span.range()] == b"constructor";
+    }
+
+    fn handle_formal_parameter_modifiers(&mut self, modifiers: &FormalParameterModifiers) {
+        self.push_strip(self.expand_right_whitespaces(modifiers.span));
+    }
+
+    fn handle_formal_parameter(&mut self, param: &FormalParameter<'ast, VoidAllocator>) {
+        if param.modifiers.is_none() {
+            return;
+        }
+        let ScopeKind::Class {
+            parameter_prop_id_spans,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        else {
+            return;
+        };
+        let BindingPatternKind::BindingIdentifier(param_id) = &param.pattern.kind else {
+            return;
+        };
+        parameter_prop_id_spans.push(param_id.span());
+        // let Some(modifiers) = &param.modifiers else {
+        //     return;
+        // };
+        // self
     }
 }
