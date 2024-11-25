@@ -66,6 +66,7 @@ pub fn transpile<'alloc>(
     let errors = std::mem::take(&mut parser_ret.errors);
 
     let patches = parser_ret.handler.into_patches();
+    dbg!(&patches);
 
     apply_patches(allocator, &patches, options.prefer_blank_space, source);
 
