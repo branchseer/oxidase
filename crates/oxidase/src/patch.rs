@@ -13,7 +13,7 @@ pub struct Patch<'a> {
 /// Panics if a span of any patch is not char boundary.
 pub fn apply_patches<'alloc>(
     allocator: &'alloc Allocator,
-    patches: &[Patch<'alloc>],
+    patches: &mut [Patch<'alloc>],
     prefer_blank_space: bool,
     source: &mut Source<'_, 'alloc>,
 ) {
@@ -23,7 +23,7 @@ pub fn apply_patches<'alloc>(
     let mut is_any_replacement_exceeded = false;
     let source_str = source.as_str();
     let mut patched_source_len = source_str.len();
-    for patch in patches {
+    for patch in patches.iter() {
         let span_size = patch.span.size() as usize;
         is_any_replacement_exceeded =
             is_any_replacement_exceeded || patch.replacement.len() > span_size;
@@ -47,6 +47,8 @@ pub fn apply_patches<'alloc>(
                 }
             }
         } else {
+            // sort is faster than sort_unstable when the slice is partially sorted.
+            patches.sort_by_key(|patch| patch.span.start);
             // ！is_any_replacement_exceeded && !prefer_blank_space
             // Copy patch replacements and substring between patches from left to right. No new string alloc needed
             // Safety:
@@ -76,6 +78,9 @@ pub fn apply_patches<'alloc>(
             }
         }
     } else {
+        // sort is faster than sort_unstable when the slice is partially sorted.
+        patches.sort_by_key(|patch| patch.span.start);
+    
         // is_any_replacement_exceeded
         // Replacement might overrides substrings between patches. Allocating new string
         let mut out = String::with_capacity_in(patched_source_len, allocator);
@@ -101,33 +106,33 @@ mod tests {
     fn blank_space() {
         let allocator = Allocator::default();
         let mut source = Source::Borrowed("abcd");
-        let patches = &[Patch {
+        let mut patches = [Patch {
             span: (1..3).into(),
             replacement: "0",
         }];
-        apply_patches(&allocator, patches, true, &mut source);
+        apply_patches(&allocator, &mut patches, true, &mut source);
         assert_eq!(source.as_str(), "a0 d");
     }
     #[test]
     fn blank_space_disable() {
         let allocator = Allocator::default();
         let mut source = Source::Borrowed("abcd");
-        let patches = &[Patch {
+        let mut patches = [Patch {
             span: (1..3).into(),
             replacement: "0",
         }];
-        apply_patches(&allocator, patches, false, &mut source);
+        apply_patches(&allocator, &mut patches, false, &mut source);
         assert_eq!(source.as_str(), "a0d");
     }
     #[test]
     fn exceeded() {
         let allocator = Allocator::default();
         let mut source = Source::Borrowed("abcd");
-        let patches = &[Patch {
+        let mut patches = [Patch {
             span: (1..3).into(),
             replacement: "1234",
         }];
-        apply_patches(&allocator, patches, false, &mut source);
+        apply_patches(&allocator, &mut patches, false, &mut source);
         assert_eq!(source.as_str(), "a1234d");
     }
 }

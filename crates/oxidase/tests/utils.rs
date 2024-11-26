@@ -1,5 +1,6 @@
 use oxidase::{transpile, Allocator, Source, SourceType, TranspileOptions};
 
+#[track_caller]
 pub fn check_transpile(source: &str, expected_out: &str) {
     let allocator = Allocator::default();
     let mut source = Source::Borrowed(source);

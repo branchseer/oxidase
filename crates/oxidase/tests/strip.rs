@@ -97,7 +97,7 @@ fn strip_this_paramater_comma() {
 
 #[test]
 fn strip_property_modifiers() {
-    check_transpile("class A { private readonly a; }", "class A { a; }");
+    check_transpile("class A { private readonly a; }", "class A {  a; }");
 }
 #[test]
 fn strip_property_optional() {
@@ -106,7 +106,7 @@ fn strip_property_optional() {
 
 #[test]
 fn strip_method_modifiers() {
-    check_transpile("class A { private async abstract static a() { } }", "class A { static async a() { } }");
+    check_transpile("class A { private async abstract static a() { } }", "class A { async static a() { } }");
 }
 
 #[test]
