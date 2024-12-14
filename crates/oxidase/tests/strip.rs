@@ -73,14 +73,14 @@ fn strip_type_assertion() {
 
 #[test]
 fn strip_class_abstract_basic() {
-    check_transpile("abstract class A {}", "class A {}");
+    check_transpile("abstract class A {}", " class A {}");
 }
 
 #[test]
 fn strip_class_abstract_complex() {
     check_transpile(
         "@foo\nexport abstract class A {}",
-        "@foo\nexport class A {}",
+        "@foo\nexport  class A {}",
     );
 }
 
@@ -97,7 +97,7 @@ fn strip_this_paramater_comma() {
 
 #[test]
 fn strip_property_modifiers() {
-    check_transpile("class A { private readonly a; }", "class A {  a; }");
+    check_transpile("class A { private readonly a; }", "class A {   a; }");
 }
 #[test]
 fn strip_property_optional() {
@@ -106,26 +106,26 @@ fn strip_property_optional() {
 
 #[test]
 fn strip_method_modifiers() {
-    check_transpile("class A { private async abstract static a() { } }", "class A { async static a() { } }");
+    check_transpile("class A { private async abstract static a() { } }", "class A {  async  static a() { } }");
 }
 
 #[test]
 fn strip_import_type_single() {
-    check_transpile("import { type A } from 'a'", "import { } from 'a'");
+    check_transpile("import { type A } from 'a'", "import {  } from 'a'");
 }
 
 #[test]
 fn strip_import_type_trailing_comma() {
-    check_transpile("import { A, type A, } from 'a'", "import { A, } from 'a'");
+    check_transpile("import { A, type A, } from 'a'", "import { A,  } from 'a'");
 }
 #[test]
 fn strip_import_type_first() {
-    check_transpile("import { type A, B } from 'a'", "import { B } from 'a'");
+    check_transpile("import { type A, B } from 'a'", "import {  B } from 'a'");
 }
 
 #[test]
 fn strip_import_type_successive() {
-    check_transpile("import { type B, type A, } from 'a'", "import { } from 'a'");
+    check_transpile("import { type B, type A, } from 'a'", "import {   } from 'a'");
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn strip_expr_definite() {
 
 #[test]
 fn strip_class_implements() {
-    check_transpile("class A implements B, C { }", "class A { }");
+    check_transpile("class A implements B, C { }", "class A  { }");
 }
 
 #[test]
@@ -165,12 +165,12 @@ fn strip_abstract_accessor() {
 
 #[test]
 fn strip_accessor_modifier() {
-    check_transpile("class Z { private accessor a; }", "class Z { accessor a; }");
+    check_transpile("class Z { private accessor a; }", "class Z {  accessor a; }");
 }
 
 #[test]
 fn strip_getter_modifier() {
-    check_transpile("class Z { private get a() {} }", "class Z { get a() {} }");
+    check_transpile("class Z { private get a() {} }", "class Z {  get a() {} }");
 }
 
 

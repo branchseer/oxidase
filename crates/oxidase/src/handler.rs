@@ -464,11 +464,21 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             // constructor (...) { ... }
             if let (Expression::CallExpression(call_expr), Some(last_super_call_expr_span)) = (&expr_stmt.expression, last_super_call_expr_span) {
                 if call_expr.span() == *last_super_call_expr_span {
-                    *super_call_stmt_end = Some(last_super_call_expr_span.end);
+                    *super_call_stmt_end = Some(expr_stmt.span.end);
                 }
             };
         };
-    
+    }
+
+    fn handle_call_expression(&mut self, call_expr: &CallExpression<'ast, VoidAllocator>) {
+       if matches!(call_expr.callee, Expression::Super(_)) {
+        if let ScopeKind::ConstructorWithParamProps {
+            last_super_call_expr_span,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind {
+            *last_super_call_expr_span = Some(call_expr.span)
+        }
+       }
     }
 
     fn handle_ts_type_annotation(&mut self, it: &TSTypeAnnotation<'ast, VoidAllocator>) {
@@ -560,15 +570,15 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             return;
         };
 
-        let source = &self.source.as_bytes()[modifiers.span.range()];
+        let modifiers_source = &self.source.as_bytes()[modifiers.span.range()];
         let mut start = 0usize;
-        'scan_source: while start < source.len() {
+        'scan_source: while start < modifiers_source.len() {
             const TS_MODIFIERS: &[&[u8]] = &[b"abstract", b"declare", b"override", b"readonly", b"private", b"protected", b"public"];
             for ts_modifier in TS_MODIFIERS {
-                if source.starts_with(ts_modifier) {
-                    self.patches.push(Patch { span: Span::new(modifiers.span.start + start as u32, modifiers.span.start + (start + source.len()) as u32), replacement: "" });
+                if modifiers_source[start..].starts_with(ts_modifier) {
+                    self.patches.push(Patch { span: Span::new(modifiers.span.start + start as u32, modifiers.span.start + (start + ts_modifier.len()) as u32), replacement: "" });
                     current_element_first_modifier_patch_index.get_or_insert(self.patches.len() - 1);
-                    start += source.len();
+                    start += ts_modifier.len();
                     continue 'scan_source;
                 }
             }
