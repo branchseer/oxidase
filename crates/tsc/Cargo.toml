@@ -1,0 +1,10 @@
+[package]
+name = "oxidase_tsc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ouroboros = "0.18.4"
+serde = { workspace = true, features = ["derive"] }
+serde_v8 = "0.235.0"
+v8 = "130.0.2"

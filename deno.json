@@ -1,0 +1,4 @@
+{
+  "nodeModulesDir":"manual",
+  "workspace": ["crates/tsc/js"]
+}

@@ -1,6 +1,9 @@
 [workspace]
-members = ["oxidase_conformance", "oxidase", "e2e"]
+members = ["oxidase_conformance", "oxidase", "e2e", "tsc"]
 resolver = "2"
+
+[profile.release.package.oxidase_e2e]
+debug-assertions = true
 
 [workspace.dependencies]
 oxc_allocator = { path = "../../oxc/crates/oxc_allocator" }
@@ -9,6 +12,7 @@ oxc_span = { path = "../../oxc/crates/oxc_span" }
 oxc_syntax = { path = "../../oxc/crates/oxc_syntax" }
 oxc_diagnostics = { path = "../../oxc/crates/oxc_diagnostics" }
 oxc_ast = { path = "../../oxc/crates/oxc_ast" }
+oxidase_tsc = { path = "tsc" }
 oxidase = { path = "oxidase" }
 copy_from_str = "1.0.6"
 rustc-hash = "2.0.0"
