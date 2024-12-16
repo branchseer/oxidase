@@ -26,3 +26,8 @@ fn prop_param_super_semicolon() {
 fn declare_class_with_codegen_inside() {
     check_transpile("declare class A { constructor(private a, readonly b) { } }", "");
 }
+
+#[test]
+fn prop_param_with_type() {
+    check_transpile("class X { a; constructor( a) { this.a = a; } }", "");
+}

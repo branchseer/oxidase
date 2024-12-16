@@ -351,7 +351,10 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             return;
         }
         let const_span = Span::new(decl.span.start, decl.id.span.start);
-        self.insert_patch(const_span, "const ");
+        self.insert_patch(const_span, match decl.module_reference {
+            TSModuleReference::ExternalModuleReference(_) => "const ",
+            _ => "var "
+        });
     }
     fn handle_import_declaration(&mut self, decl: &ImportDeclaration<'ast, VoidAllocator>) {
         if decl.import_kind.is_type() {
@@ -718,7 +721,10 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         let BindingPatternKind::BindingIdentifier(param_id) = &param.pattern.kind else {
             return;
         };
-        let param_id_span = param_id.span();
+        let mut param_id_span = param_id.span();
+        if let Some(type_annotation) = &param.pattern.type_annotation {
+            param_id_span.end = type_annotation.span().start;
+        }
 
         let current_scope_kind = &mut self.scope_stack.last_mut().unwrap().kind;
         match current_scope_kind {
