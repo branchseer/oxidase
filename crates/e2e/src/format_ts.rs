@@ -1,34 +1,31 @@
-use crate::common::{remove_empty_statements, ts_syntax};
-use oxidase::ModuleKind;
+use crate::common::remove_empty_statements;
 use std::sync::Arc;
 use swc::{Compiler, PrintArgs};
 use swc_common::{FileName, SourceMap, Spanned};
 use swc_ecma_ast::{EsVersion, Program};
-use swc_ecma_parser::with_file_parser;
+use swc_ecma_parser::{with_file_parser, Syntax};
 
-pub fn format_ts(source: impl Into<String>, module_kind: ModuleKind) -> anyhow::Result<String> {
+pub fn format_js(source: impl Into<String>) -> anyhow::Result<String> {
     let cm = Arc::new(SourceMap::default());
     let fm = cm.new_source_file(FileName::Custom("a.js".into()).into(), source.into());
     let mut errors = vec![];
 
     let mut program = with_file_parser(
         &fm,
-        ts_syntax(),
+        Syntax::Es(swc_ecma_parser::EsSyntax {
+            decorators: true,
+            import_attributes: true,
+            allow_return_outside_function: true,
+            ..Default::default()
+        }),
         EsVersion::latest(),
         None,
         &mut errors,
         |parser| {
-            Ok(match module_kind {
-                ModuleKind::Module => Program::Module(parser.parse_module()?),
-                ModuleKind::Script => Program::Script(parser.parse_script()?),
-            })
+            Ok(Program::Module(parser.parse_module()?))
         },
     )
     .map_err(|err| anyhow::anyhow!("{:?}: {}", err.span(), err.kind().msg()))?;
-
-    // if !errors.is_empty() {
-    //     anyhow::bail!("{:#?}", errors);
-    // }
 
     remove_empty_statements(&mut program);
 
@@ -43,14 +40,22 @@ pub fn format_ts(source: impl Into<String>, module_kind: ModuleKind) -> anyhow::
 
 #[cfg(test)]
 mod tests {
-    use crate::format_ts::format_ts;
-    use oxidase::ModuleKind;
+    use super::*;
 
     #[test]
     fn test_format_ts() {
         assert_eq!(
-            format_ts("a = 1;b=2;{ c=3}", ModuleKind::Module).unwrap(),
-            "a = 1;\nb = 2;\n{\n    c = 3;\n}"
+            format_js(r#"const alias = require('foo')"#).unwrap(),
+            "const alias = require(\"foo\");\n"
         );
+        assert_eq!(
+            format_js(r#"var let = 1; await 2"#).unwrap(),
+            "var let = 1;\nawait 2;\n"
+        );
+    }
+
+    #[test]
+    fn hello() {
+        assert_eq!(format_js("(a.a) = 1").unwrap(), "a.a = 1;\n");
     }
 }

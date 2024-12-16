@@ -1,3 +1,8 @@
+#![recursion_limit = "256"]
+
+mod format_ts;
+mod common;
+
 use std::{
     cell::RefCell, fmt::Display, fs::read_to_string, path::{Path, PathBuf}, sync::{
         atomic::{AtomicUsize, Ordering},
@@ -5,6 +10,7 @@ use std::{
     }, time::Duration
 };
 
+use format_ts::format_js;
 use ignore::WalkBuilder;
 use oxidase::{Allocator, SourceType, TranspileOptions};
 use oxidase_tsc::{SourceKind, Tsc};
@@ -40,6 +46,7 @@ impl Display for Failure {
 }
 
 fn main() {
+
     let test_repos_path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("test_repos/typescript/tests/cases/compiler");
     let walk = WalkBuilder::new(test_repos_path)
@@ -81,7 +88,7 @@ fn main() {
 
     // all_paths.retain(|path| path.file_name().unwrap() == "typeParameterLeak.ts");
     all_paths.sort_unstable();
-    all_paths.truncate(200);
+    // all_paths.truncate(1000);
 
     let all_cnt = all_paths.len();
     let finished_cnt = Arc::new(AtomicUsize::new(0));
@@ -140,24 +147,32 @@ fn main() {
                         },
                         &mut source,
                     );
-                    if transpile_return.panicked {
+                    if transpile_return.panicked || !transpile_return.errors.is_empty() {
                         // Ignore oxc parser error. it should be covered by oxc_parser's conformance tests
                         return None;
                     }
+                    if path.ends_with("ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts") {
+                        println!("ClassDeclarationWithInvalidConstOnPropertyDeclaration\n{}", process_result.ts)
+                    }
+                    let Ok(expected_output) = format_js(&process_result.js) else {
+                        // Ignore invalid expected js output
+                        return None;
+                    };
                     let output = source.as_str();
-                    let Some(formated_output) = tsc.format_js(output) else {
+                    let Ok(formated_output) = format_js(output) else {
                         return Some(Failure {
                             path: path.clone(),
                             input: process_result.ts.clone(),
                             kind: FailureKind::OutputInvalidSyntax(output.to_string()),
                         });
                     };
-                    if formated_output != process_result.js {
+
+                    if formated_output != expected_output {
                         return Some(Failure {
                             path: path.clone(),
                             input: process_result.ts,
                             kind: FailureKind::UnmatchedOutput {
-                                expected: process_result.js,
+                                expected: expected_output,
                                 actual: formated_output,
                             },
                         });

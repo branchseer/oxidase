@@ -1,4 +1,4 @@
-use std::{sync::Once, time::Instant};
+use std::{sync::Once};
 
 static TSC_JS_SOURCE: &str = include_str!("../js/dist.js");
 
@@ -6,7 +6,6 @@ pub struct Tsc {
     isolate: v8::OwnedIsolate,
     context: v8::Global<v8::Context>,
     process_ts_func: v8::Global<v8::Function>,
-    format_js_func: v8::Global<v8::Function>,
 }
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
@@ -34,7 +33,7 @@ impl Tsc {
 
         let mut isolate = v8::Isolate::new(v8::CreateParams::default());
 
-        let (context, process_ts_func, format_js_func) = {
+        let (context, process_ts_func) = {
             let handle_scope = &mut v8::HandleScope::new(&mut isolate);
 
             let context = v8::Context::new(handle_scope, Default::default());
@@ -56,15 +55,10 @@ impl Tsc {
                 .unwrap()
                 .cast::<v8::Function>();
 
-            let format_js_name = v8::String::new(scope, "formatJs").unwrap().cast();
-            let format_js_func = oxidase_tsc
-                .get(scope, format_js_name)
-                .unwrap()
-                .cast::<v8::Function>();
+
             (
                 v8::Global::new(scope, context),
                 v8::Global::new(scope, process_ts_func),
-                v8::Global::new(scope, format_js_func),
             )
         };
 
@@ -72,7 +66,6 @@ impl Tsc {
             isolate,
             context,
             process_ts_func,
-            format_js_func,
         }
     }
 
@@ -87,19 +80,6 @@ impl Tsc {
         let result = process_ts_func
             .call(handle_scope, global.cast(), &[source.cast()])?;
         serde_v8::from_v8::<Option<ProcessTsResult>>(handle_scope, result).ok()?
-    }
-
-    pub fn format_js(&mut self, source: &str) -> Option<String> {
-        let format_js_func = self.format_js_func.open(&mut self.isolate);
-        let context = self.context.open(&mut self.isolate);
-        let handle_scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
-        let global = context.global(handle_scope);
-
-        let source = v8::String::new(handle_scope, source)?;
-
-        let result = format_js_func
-            .call(handle_scope, global.cast(), &[source.cast()])?;
-        serde_v8::from_v8::<Option<String>>(handle_scope, result).ok()?
     }
 }
 
@@ -130,12 +110,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn format_js() {
-        let mut tsc = Tsc::new();
-        assert_eq!(
-            tsc.format_js("1+1").unwrap(),
-            "1 + 1;\n"
-        );
-    }
 }

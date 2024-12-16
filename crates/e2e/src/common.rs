@@ -1,13 +1,7 @@
-use oxidase::ModuleKind;
-use serde::{Deserialize, Serialize};
-use std::path::Path;
-use swc_ecma_ast::{ClassMember, Module, ModuleItem, Program, Script, Stmt};
-use swc_ecma_parser::Syntax;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use std::ops::Deref;
 
-pub fn generated_folder_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("generated")
-}
+use swc_ecma_ast::{AssignTarget, BindingIdent, ClassMember, Expr, Lit, Module, ModuleItem, ParenExpr, Program, Script, SimpleAssignTarget, Stmt};
+use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 
 pub struct EmptyStatementRemover;
 
@@ -24,34 +18,51 @@ impl VisitMut for EmptyStatementRemover {
         stmts.retain(|stmt| !matches!(stmt, Stmt::Empty(..)));
         stmts.visit_mut_children_with(self);
     }
+    fn visit_mut_lit(&mut self, lit: &mut Lit) {
+        if let Lit::Str(str_lit) = lit {
+            // Make printer generate consistent quote type instead of relying on the input
+            str_lit.raw = None;
+        }
+        lit.visit_mut_children_with(self);
+    }
+    fn visit_mut_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Paren(paren_expr) = expr {
+            let inner_expr = paren_expr.expr.deref();
+            if matches!(inner_expr, Expr::Lit(_) | Expr::Paren(_) | Expr::Ident(_) | Expr::Member(_)) {
+                // `(a)` => `a`
+                *expr = inner_expr.clone();
+                expr.visit_mut_with(self);
+                return;
+            }
+        }
+        expr.visit_mut_children_with(self);
+    }
+    fn visit_mut_simple_assign_target(&mut self, node: &mut SimpleAssignTarget) {
+        if let SimpleAssignTarget::Paren(paren_expr) = node {
+            let inner_expr = paren_expr.expr.deref();
+            match inner_expr {
+                Expr::Ident(ident) => {
+                    // `(id) = 1` => `id = 1`
+                    *node = SimpleAssignTarget::Ident(BindingIdent { id: ident.clone(), type_ann: None});
+                },
+                Expr::Member(member) => {
+                    // `(a.b) = 1` => `a.b = 1`
+                    *node = SimpleAssignTarget::Member(member.clone());
+                },
+                Expr::Paren(paren) => {
+                    // `(...) = 1` => `... = 1`
+                    *node = SimpleAssignTarget::Paren(paren.clone());
+                    node.visit_mut_with(self);
+                    return;
+                },
+                _ => {}
+            }
+        }
+        node.visit_mut_children_with(self);
+    }
+    
 }
 
 pub fn remove_empty_statements(node: &mut Program) {
     node.visit_mut_with(&mut EmptyStatementRemover);
-}
-
-pub fn ts_syntax() -> Syntax {
-    Syntax::Typescript(swc_ecma_parser::TsSyntax {
-        decorators: true,
-        ..Default::default()
-    })
-}
-
-pub fn test_repos_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("test_repos")
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(remote = "ModuleKind", rename_all = "camelCase")]
-pub enum ModuleKindDef {
-    Script,
-    Module,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct SourceRecord {
-    pub id: u64,
-    pub path: String,
-    #[serde(with = "ModuleKindDef")]
-    pub module_kind: ModuleKind,
 }

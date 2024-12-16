@@ -12,3 +12,13 @@ ignore = "0.4.23"
 oxidase_tsc = { workspace = true }
 rayon.workspace = true
 similar-asserts = "1.6.0"
+swc_ecma_parser = { workspace = true }
+swc_common = { workspace = true }
+swc_ecma_ast = { workspace = true }
+swc = { workspace = true }
+swc_ecma_visit = { workspace = true }
+anyhow = { workspace = true }
+# biome_js_formatter = "0.5.7"
+# biome_js_parser = "0.5.7"
+# biome_js_syntax = "0.5.7"
+# dprint-plugin-biome = { git = "https://github.com/dprint/dprint-plugin-biome", branch = "main" }

@@ -288,6 +288,10 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             self.push_strip(specifier.span);
         }
     }
+    fn handle_ts_namespace_export_declaration(&mut self, decl: &TSNamespaceExportDeclaration<'ast>) {
+        // export as namespace Foo;
+        self.push_strip(decl.span);
+    }
     fn handle_export_named_declaration(
         &mut self,
         decl: &ExportNamedDeclaration<'ast, VoidAllocator>,
@@ -302,7 +306,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         let Some(last_patch) = self.patches.last() else {
             return;
         };
-        if (last_patch.span == exported_decl.span()) {
+        if last_patch.span == exported_decl.span() {
             self.push_strip(decl.span());
         }
     }
@@ -399,7 +403,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         );
 
         let insert_span = if let Some(super_call_stmt_end) = *super_call_stmt_end {
-            prop_init_code.push(',');
+            prop_init_code.push(';');
             if self.source.as_bytes()[super_call_stmt_end as usize - 1] == b';' {
                 Span::new(super_call_stmt_end - 1, super_call_stmt_end)
             } else {

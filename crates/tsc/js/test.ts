@@ -1,6 +1,6 @@
 import { assertEquals } from "jsr:@std/assert";
 import { describe, it } from "jsr:@std/testing/bdd";
-import { formatJs, processTs } from "./index.ts";
+import { processTs } from "./index.ts";
 
 describe("processTs", () => {
     it('should format and transpile ts', () => {
@@ -52,13 +52,13 @@ declare namespace b { }
     })
 });
 
-describe("formatJs", () => {
-    it("should format module js", () => {
-        const result = formatJs("await 1+1");
-        assertEquals(result, "await 1 + 1;\n");
-    })
-    it("should reject invalid js syntax", () => {
-        const result = formatJs("let a: string");
-        assertEquals(result, null);
-    })
-});
+// describe("formatJs", () => {
+//     it("should format module js", () => {
+//         const result = formatJs("await 1+1");
+//         assertEquals(result, "await 1 + 1;\n");
+//     })
+//     it("should reject invalid js syntax", () => {
+//         const result = formatJs("let a: string");
+//         assertEquals(result, null);
+//     })
+// });
