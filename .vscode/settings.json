@@ -1,4 +1,4 @@
 {
     "rust-analyzer.checkOnSave": true,
-    "deno.enable": true
+    "deno.enable": false,
 }

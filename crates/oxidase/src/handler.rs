@@ -18,7 +18,6 @@ impl SpanExt for Span {
     }
 }
 
-
 pub struct StripHandler<'source, 'alloc> {
     source: &'source str,
     allocator: &'alloc Allocator,
@@ -73,9 +72,11 @@ enum ScopeKind<'alloc> {
     Other,
     Class {
         current_element_first_modifier_patch_index: Option<usize>,
+        parameter_prop_id_spans_in_first_constructor: Vec<'alloc, Span>,
         parameter_prop_id_spans: Vec<'alloc, Span>,
+        super_call_stmt_end: Option<u32>,
     },
-    ConstructorWithParamProps {
+    FunctionWithParamProps {
         parameter_prop_id_spans: Vec<'alloc, Span>,
         super_call_stmt_end: Option<u32>,
         last_super_call_expr_span: Option<Span>,
@@ -107,20 +108,16 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         self.patches.push(Patch { span, replacement });
     }
     fn insert_patch(&mut self, span: Span, replacement: &'alloc str) {
-        // let mut insert_pos = self.patches.len();
-        // while insert_pos > 0 && self.patches[insert_pos - 1].span.end > span.start {
-        //     insert_pos -= 1
-        // }
-        // #[cfg(debug_assertions)]
-        // if let Some(patch_after) = self.patches.get(insert_pos) {
-        //     assert!(span.end <= patch_after.span.start);
-        // }
-        // self.patches.insert(insert_pos, Patch { span, replacement });
-        self.patches.push(Patch { span, replacement });
+        let mut insert_pos = self.patches.len();
+        while insert_pos > 0 && self.patches[insert_pos - 1].span.end > span.start {
+            insert_pos -= 1
+        }
+        #[cfg(debug_assertions)]
+        if let Some(patch_after) = self.patches.get(insert_pos) {
+            assert!(span.end <= patch_after.span.start);
+        }
+        self.patches.insert(insert_pos, Patch { span, replacement });
     }
-    // fn insert_strip(&mut self, span: Span) {
-    //     self.insert_patch(span, "");
-    // }
 
     fn source_bytes(&self) -> &[u8] {
         self.source.as_bytes()
@@ -142,7 +139,9 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         }
     }
 
-    fn class_element_modifiers_asi(&mut self) {
+    // If the prefix of a class element is stripped, insert a ";" there;
+    // `readonly ['a'] = 1` -> `; ['a'] = 1`
+    fn class_element_prefix_patch_asi(&mut self, element_start: u32) {
         let ScopeKind::Class {
             current_element_first_modifier_patch_index,
             ..
@@ -153,15 +152,22 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
             }
             return;
         };
-        let Some(current_element_first_modifier_patch_index) = *current_element_first_modifier_patch_index
+        let Some(current_element_first_modifier_patch_index) =
+            *current_element_first_modifier_patch_index
         else {
             return;
         };
-        let modifiers_patch =
+        let first_modifier_patch =
             &mut self.patches.as_mut_slice()[current_element_first_modifier_patch_index];
-        if !modifiers_patch.replacement.starts_with(";") {
-            modifiers_patch.replacement =
-                format!(in self.allocator, ";{}", modifiers_patch.replacement).into_bump_str();
+
+        // first_modifier_patch isn't always the prefix of a class element：
+        // @foo readonly ['a'] = 1;
+        // static readonly ['a'] = 1;
+        if first_modifier_patch.span.start == element_start
+            && !first_modifier_patch.replacement.starts_with(";")
+        {
+            first_modifier_patch.replacement =
+                format!(in self.allocator, ";{}", first_modifier_patch.replacement).into_bump_str();
         }
     }
 
@@ -235,7 +241,9 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         let kind = match T::SCOPE_TYPE {
             ScopeType::Class => ScopeKind::Class {
                 current_element_first_modifier_patch_index: None,
+                parameter_prop_id_spans_in_first_constructor: Vec::new_in(&self.allocator),
                 parameter_prop_id_spans: Vec::new_in(&self.allocator),
+                super_call_stmt_end: None,
             },
             _ => ScopeKind::Other,
         };
@@ -247,14 +255,17 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     fn leave_scope(&mut self) {
         let scope = self.scope_stack.pop().unwrap();
         match scope.kind {
-            ScopeKind::ConstructorWithParamProps {
-                parameter_prop_id_spans: parameter_prop_id_spans_under_constructor,
+            ScopeKind::FunctionWithParamProps {
+                parameter_prop_id_spans: parameter_prop_id_spans_under_function,
+                super_call_stmt_end: super_call_stmt_end_under_function,
                 ..
             } => {
                 let Some(Scope {
                     kind:
                         ScopeKind::Class {
+                            parameter_prop_id_spans_in_first_constructor,
                             parameter_prop_id_spans: parameter_prop_id_spans_under_class,
+                            super_call_stmt_end: super_call_stmt_end_under_class,
                             ..
                         },
                     ..
@@ -262,7 +273,25 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                 else {
                     return;
                 };
-                *parameter_prop_id_spans_under_class = parameter_prop_id_spans_under_constructor;
+
+                /*
+                   Because this `leave_scope` is triggered by the function part of the method, we can know if the function is a constructor or not
+                   (e.g. someMethod(public a) {} ),
+                   The following scope field updates may be correct, they will be cleared if it's not constructor in handle_method_definition.
+                */
+                if parameter_prop_id_spans_in_first_constructor.is_empty() {
+                    /* Remember param props in the first constructor for emiting field declarations:
+                    class A {
+                        a <--- remember a for this
+                        constructor(private a) {}
+                        constructor(private b) {}
+                    }
+                    */
+                    parameter_prop_id_spans_in_first_constructor
+                        .extend_from_slice(&parameter_prop_id_spans_under_function);
+                }
+                *parameter_prop_id_spans_under_class = parameter_prop_id_spans_under_function;
+                *super_call_stmt_end_under_class = super_call_stmt_end_under_function
             }
             _ => {}
         }
@@ -288,7 +317,10 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             self.push_strip(specifier.span);
         }
     }
-    fn handle_ts_namespace_export_declaration(&mut self, decl: &TSNamespaceExportDeclaration<'ast>) {
+    fn handle_ts_namespace_export_declaration(
+        &mut self,
+        decl: &TSNamespaceExportDeclaration<'ast>,
+    ) {
         // export as namespace Foo;
         self.push_strip(decl.span);
     }
@@ -355,10 +387,13 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             return;
         }
         let const_span = Span::new(decl.span.start, decl.id.span.start);
-        self.insert_patch(const_span, match decl.module_reference {
-            TSModuleReference::ExternalModuleReference(_) => "const ",
-            _ => "var "
-        });
+        self.insert_patch(
+            const_span,
+            match decl.module_reference {
+                TSModuleReference::ExternalModuleReference(_) => "const ",
+                _ => "var ",
+            },
+        );
     }
     fn handle_import_declaration(&mut self, decl: &ImportDeclaration<'ast, VoidAllocator>) {
         if decl.import_kind.is_type() {
@@ -377,56 +412,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         self.push_strip(decl.span);
     }
 
-    fn handle_function_body(&mut self, body: &FunctionBody<'ast, VoidAllocator>) {
-        let ScopeKind::ConstructorWithParamProps {
-            parameter_prop_id_spans,
-            super_call_stmt_end,
-            ..
-        } = &self.scope_stack.last().unwrap().kind
-        else {
-            return;
-        };
-
-        let mut prop_init_code: String<'_> = String::with_capacity_in(
-            parameter_prop_id_spans
-                .iter()
-                .map(|id_span| {
-                    " this.".len()
-                        + id_span.size() as usize
-                        + " = ".len()
-                        + id_span.size() as usize
-                        + ";".len()
-                })
-                .sum::<usize>()
-                + 1,
-            &self.allocator,
-        );
-
-        let insert_span = if let Some(super_call_stmt_end) = *super_call_stmt_end {
-            prop_init_code.push(';');
-            if self.source.as_bytes()[super_call_stmt_end as usize - 1] == b';' {
-                Span::new(super_call_stmt_end - 1, super_call_stmt_end)
-            } else {
-                Span::new(super_call_stmt_end, super_call_stmt_end)
-            }
-        } else {
-            let body_start = body.span().start;
-            debug_assert_eq!(self.source_bytes()[body_start as usize], b'{');
-            Span::new(body_start + 1, body_start + 1)
-        };
-
-        for id_span in parameter_prop_id_spans {
-            let ident = &self.source[*id_span];
-            prop_init_code.push_str(" this.");
-            prop_init_code.push_str(ident);
-            prop_init_code.push_str(" = ");
-            prop_init_code.push_str(ident);
-            prop_init_code.push_str(";");
-        }
-        let prop_init_code = prop_init_code.into_bump_str();
-
-        self.insert_patch(insert_span, prop_init_code);
-    }
+    fn handle_function_body(&mut self, body: &FunctionBody<'ast, VoidAllocator>) {}
 
     fn handle_function(&mut self, func: &Function<'ast, VoidAllocator>) {
         if func.declare || func.body.is_none() {
@@ -436,7 +422,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
 
     fn handle_class_element(&mut self, element: &ClassElement<'ast, VoidAllocator>) {
         let span = element.span();
-        self.statement_asi(span);
+        self.class_element_prefix_patch_asi(span.start);
         let ScopeKind::Class {
             current_element_first_modifier_patch_index,
             ..
@@ -462,14 +448,16 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         &mut self,
         expr_stmt: &ExpressionStatement<'ast, VoidAllocator>,
     ) {
-        if let ScopeKind::ConstructorWithParamProps {
+        if let ScopeKind::FunctionWithParamProps {
             super_call_stmt_end,
             last_super_call_expr_span,
             ..
         } = &mut self.scope_stack.last_mut().unwrap().kind
-         {
+        {
             // constructor (...) { ... }
-            if let (Expression::CallExpression(call_expr), Some(last_super_call_expr_span)) = (&expr_stmt.expression, last_super_call_expr_span) {
+            if let (Expression::CallExpression(call_expr), Some(last_super_call_expr_span)) =
+                (&expr_stmt.expression, last_super_call_expr_span)
+            {
                 if call_expr.span() == *last_super_call_expr_span {
                     *super_call_stmt_end = Some(expr_stmt.span.end);
                 }
@@ -478,14 +466,15 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     }
 
     fn handle_call_expression(&mut self, call_expr: &CallExpression<'ast, VoidAllocator>) {
-       if matches!(call_expr.callee, Expression::Super(_)) {
-        if let ScopeKind::ConstructorWithParamProps {
-            last_super_call_expr_span,
-            ..
-        } = &mut self.scope_stack.last_mut().unwrap().kind {
-            *last_super_call_expr_span = Some(call_expr.span)
+        if matches!(call_expr.callee, Expression::Super(_)) {
+            if let ScopeKind::FunctionWithParamProps {
+                last_super_call_expr_span,
+                ..
+            } = &mut self.scope_stack.last_mut().unwrap().kind
+            {
+                *last_super_call_expr_span = Some(call_expr.span)
+            }
         }
-       }
     }
 
     fn handle_ts_type_annotation(&mut self, it: &TSTypeAnnotation<'ast, VoidAllocator>) {
@@ -519,7 +508,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         let Some(Scope {
             kind:
                 ScopeKind::Class {
-                    parameter_prop_id_spans,
+                    parameter_prop_id_spans_in_first_constructor,
                     ..
                 },
             ..
@@ -529,13 +518,22 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         };
         let class_body_start = class_body.span.start;
         debug_assert_eq!(self.source_bytes()[class_body_start as usize], b'{');
-        let mut prop_decls: String<'_> = String::with_capacity_in(parameter_prop_id_spans.iter().map(|span| span.size() as usize + 2).sum(), &self.allocator);
-        for prop_id_span in parameter_prop_id_spans {
+        let mut prop_decls: String<'_> = String::with_capacity_in(
+            parameter_prop_id_spans_in_first_constructor
+                .iter()
+                .map(|span| span.size() as usize + 2)
+                .sum(),
+            &self.allocator,
+        );
+        for prop_id_span in parameter_prop_id_spans_in_first_constructor {
             prop_decls.push(' ');
             prop_decls.push_str(&self.source[*prop_id_span]);
             prop_decls.push(';');
         }
-        self.insert_patch(Span::new(class_body_start + 1, class_body_start + 1), prop_decls.into_bump_str());
+        self.insert_patch(
+            Span::new(class_body_start + 1, class_body_start + 1),
+            prop_decls.into_bump_str(),
+        );
     }
 
     fn handle_class(&mut self, it: &Class<'ast, VoidAllocator>) {
@@ -546,6 +544,20 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     }
     fn handle_ts_this_parameter(&mut self, it: &TSThisParameter<'ast, VoidAllocator>) {
         self.push_strip(it.span);
+    }
+    fn handle_ts_function_type(&mut self, ts_func_type: &TSFunctionType<'ast, VoidAllocator>) {
+        // ignore param props in function types (`constructor(a: (public b) => void) {}`)
+        if let ScopeKind::FunctionWithParamProps {
+            parameter_prop_id_spans,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        {
+            let ts_func_type_start = ts_func_type.span.start;
+            while matches!(parameter_prop_id_spans.last(), Some(span) if span.start >= ts_func_type_start)
+            {
+                parameter_prop_id_spans.pop();
+            }
+        }
     }
     fn handle_ts_type_assertion_annotation(
         &mut self,
@@ -580,18 +592,32 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         let modifiers_source = &self.source.as_bytes()[modifiers.span.range()];
         let mut start = 0usize;
         'scan_source: while start < modifiers_source.len() {
-            const TS_MODIFIERS: &[&[u8]] = &[b"abstract", b"declare", b"override", b"readonly", b"private", b"protected", b"public"];
+            const TS_MODIFIERS: &[&[u8]] = &[
+                b"abstract",
+                b"declare",
+                b"override",
+                b"readonly",
+                b"private",
+                b"protected",
+                b"public",
+            ];
             for ts_modifier in TS_MODIFIERS {
                 if modifiers_source[start..].starts_with(ts_modifier) {
-                    self.patches.push(Patch { span: Span::new(modifiers.span.start + start as u32, modifiers.span.start + (start + ts_modifier.len()) as u32), replacement: "" });
-                    current_element_first_modifier_patch_index.get_or_insert(self.patches.len() - 1);
+                    self.patches.push(Patch {
+                        span: Span::new(
+                            modifiers.span.start + start as u32,
+                            modifiers.span.start + (start + ts_modifier.len()) as u32,
+                        ),
+                        replacement: "",
+                    });
+                    current_element_first_modifier_patch_index
+                        .get_or_insert(self.patches.len() - 1);
                     start += ts_modifier.len();
                     continue 'scan_source;
                 }
             }
             start += 1;
         }
-
     }
 
     fn handle_ts_definite_mark(&mut self, mark: &TSDefiniteMark) {
@@ -602,14 +628,72 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     }
 
     fn handle_method_definition(&mut self, element: &MethodDefinition<'ast, VoidAllocator>) {
-        if matches!(self.patches.last(), Some(last_patch) if last_patch.span == element.value.span())
+        if matches!(self.patches.last(), Some(last_patch) if last_patch.span == element.value.span() && last_patch.replacement.is_empty())
         {
+            // if the function part is stripped (declare or empty body), strip the whole method
             self.push_strip(element.span);
-            return;
         }
-        if element.kind.is_method() && (element.value.generator || element.key.is_expression()) {
-            self.class_element_modifiers_asi();
-        }
+
+        if let ScopeKind::Class {
+            parameter_prop_id_spans_in_first_constructor,
+            parameter_prop_id_spans,
+            super_call_stmt_end,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        {
+            if let (MethodDefinitionKind::Constructor, Some(body)) =
+                (element.kind, &element.value.body)
+            {
+                let mut prop_init_code: String<'_> = String::with_capacity_in(
+                    parameter_prop_id_spans
+                        .iter()
+                        .map(|id_span| {
+                            " this.".len()
+                                + id_span.size() as usize
+                                + " = ".len()
+                                + id_span.size() as usize
+                                + ";".len()
+                        })
+                        .sum::<usize>()
+                        + 1,
+                    &self.allocator,
+                );
+
+                let insert_span = if let Some(super_call_stmt_end) = *super_call_stmt_end {
+                    prop_init_code.push(';');
+                    if self.source.as_bytes()[super_call_stmt_end as usize - 1] == b';' {
+                        Span::new(super_call_stmt_end - 1, super_call_stmt_end)
+                    } else {
+                        Span::new(super_call_stmt_end, super_call_stmt_end)
+                    }
+                } else {
+                    let body_start = body.span().start;
+                    debug_assert_eq!(self.source.as_bytes()[body_start as usize], b'{');
+                    Span::new(body_start + 1, body_start + 1)
+                };
+
+                for id_span in parameter_prop_id_spans.iter() {
+                    let ident = &self.source[*id_span];
+                    prop_init_code.push_str(" this.");
+                    prop_init_code.push_str(ident);
+                    prop_init_code.push_str(" = ");
+                    prop_init_code.push_str(ident);
+                    prop_init_code.push_str(";");
+                }
+                let prop_init_code = prop_init_code.into_bump_str();
+
+                self.insert_patch(insert_span, prop_init_code);
+            } else {
+                // clear param prop state in class scope if the method isn't constructor or the constructor body is empty (someMethod(public a)),
+                // to avoid emiting field declarations.
+                if matches!(parameter_prop_id_spans_in_first_constructor.first(), Some(id_span) if id_span.start >= element.span.start)
+                {
+                    parameter_prop_id_spans_in_first_constructor.clear();
+                }
+                parameter_prop_id_spans.clear();
+                *super_call_stmt_end = None;
+            }
+        };
     }
     fn handle_property_definition(&mut self, element: &PropertyDefinition<'ast, VoidAllocator>) {
         if element
@@ -618,9 +702,6 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         {
             self.push_strip(element.span);
             return;
-        }
-        if element.key.is_expression() {
-            self.class_element_modifiers_asi();
         }
     }
     fn handle_accessor_property(&mut self, element: &AccessorProperty<'ast, VoidAllocator>) {
@@ -633,6 +714,17 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     }
     fn handle_ts_index_signature(&mut self, element: &TSIndexSignature<'ast, VoidAllocator>) {
         self.push_strip(element.span);
+    }
+
+    fn handle_object_property(&mut self, prop: &ObjectProperty<'ast, VoidAllocator>) {
+        if prop.method {
+            if let (Some(patch), Expression::FunctionExpression(function_value)) = (self.patches.last(), &prop.value) {
+                if patch.span == function_value.span() {
+                    self.push_strip(prop.span);
+                }
+            }
+        }
+        // if prop.method && matches(&prop.value, Expression::
     }
 
     fn handle_arrow_function_expression(
@@ -658,8 +750,9 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             .patches
             .binary_search_by_key(&body_span.start, |patch| patch.span.start)
         else {
-            #[cfg(test)]
-            panic!("Failed to find the patch of type assertion (<...>) right after arrow (=>). Expected patch start: {}", body_span.start);
+            if cfg!(debug_assertions) {
+                panic!("Failed to find the patch of type assertion (<...>) right after arrow (=>). Expected patch start: {}", body_span.start);
+            }
             return;
         };
 
@@ -722,18 +815,44 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         if param.modifiers.is_none() {
             return;
         }
-        let BindingPatternKind::BindingIdentifier(param_id) = &param.pattern.kind else {
-            return;
+        let param_id_span = match &param.pattern.kind {
+            BindingPatternKind::BindingIdentifier(param_id) => {
+
+                let mut param_id_span = param_id.span();
+
+                if let Some(optional_mark) = &param.pattern.optional {
+                    param_id_span.end = optional_mark.span.start;
+                }
+                else if let Some(type_annotation) = &param.pattern.type_annotation {
+                    param_id_span.end = type_annotation.span().start;
+                }
+                param_id_span
+            },
+            BindingPatternKind::AssignmentPattern(assign_pat) => {
+                // public ... = 1
+                let start = assign_pat.span().start;
+
+                if matches!(self.source_bytes()[start as usize], b'{' | b'[') {
+                    // public {a} = {}
+                    return;
+                }
+                let mut end = start;
+                while end <= assign_pat.span().end {
+                    if matches!(self.source_bytes()[end as usize], b'?' | b'=' | b',' | b')' | b'/' | b':') {
+                        break;
+                    }
+                    end += 1
+                }
+                Span::new(start, end)
+                
+            }
+            _ => return,
         };
-        let mut param_id_span = param_id.span();
-        if let Some(type_annotation) = &param.pattern.type_annotation {
-            param_id_span.end = type_annotation.span().start;
-        }
 
         let current_scope_kind = &mut self.scope_stack.last_mut().unwrap().kind;
         match current_scope_kind {
             ScopeKind::Other => {
-                *current_scope_kind = ScopeKind::ConstructorWithParamProps {
+                *current_scope_kind = ScopeKind::FunctionWithParamProps {
                     super_call_stmt_end: None,
                     parameter_prop_id_spans: {
                         let mut prop_id_spans = Vec::with_capacity_in(1, &self.allocator);
@@ -743,7 +862,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                     last_super_call_expr_span: None,
                 }
             }
-            ScopeKind::ConstructorWithParamProps {
+            ScopeKind::FunctionWithParamProps {
                 parameter_prop_id_spans,
                 ..
             } => {

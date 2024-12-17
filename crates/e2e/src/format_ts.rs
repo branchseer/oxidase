@@ -21,9 +21,7 @@ pub fn format_js(source: impl Into<String>) -> anyhow::Result<String> {
         EsVersion::latest(),
         None,
         &mut errors,
-        |parser| {
-            Ok(Program::Module(parser.parse_module()?))
-        },
+        |parser| Ok(Program::Module(parser.parse_module()?)),
     )
     .map_err(|err| anyhow::anyhow!("{:?}: {}", err.span(), err.kind().msg()))?;
 
@@ -56,6 +54,27 @@ mod tests {
 
     #[test]
     fn hello() {
-        assert_eq!(format_js("(a.a) = 1").unwrap(), "a.a = 1;\n");
+        assert_eq!(
+            format_js(
+                r#" class B  {
+    
+    
+    
+     get readonlyProp(): string{}
+     set readonlyProp(val: string){}
+    
+}
+class C extends B {
+    get prop() { return "foo"; }
+    set prop(v) { }
+    raw = "edge";
+     ro = "readonly please";
+    readonlyProp;
+    m() { }
+}"#
+            )
+            .unwrap(),
+            "a.a = 1;\n"
+        );
     }
 }

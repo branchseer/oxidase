@@ -1,6 +1,9 @@
 use std::ops::Deref;
 
-use swc_ecma_ast::{AssignTarget, BindingIdent, ClassMember, Expr, Lit, Module, ModuleItem, ParenExpr, Program, Script, SimpleAssignTarget, Stmt};
+use swc_ecma_ast::{
+    AssignTarget, BindingIdent, ClassMember, Expr, Lit, Module, ModuleItem, ParenExpr, Program,
+    Script, SimpleAssignTarget, Stmt,
+};
 use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 
 pub struct EmptyStatementRemover;
@@ -28,7 +31,18 @@ impl VisitMut for EmptyStatementRemover {
     fn visit_mut_expr(&mut self, expr: &mut Expr) {
         if let Expr::Paren(paren_expr) = expr {
             let inner_expr = paren_expr.expr.deref();
-            if matches!(inner_expr, Expr::Lit(_) | Expr::Paren(_) | Expr::Ident(_) | Expr::Member(_)) {
+            if matches!(
+                inner_expr,
+                Expr::Lit(_)
+                    | Expr::Paren(_)
+                    | Expr::Ident(_)
+                    | Expr::Member(_)
+                    | Expr::Call(_)
+                    | Expr::New(_)
+                    | Expr::This(_)
+                    | Expr::Array(_)
+                    | Expr::SuperProp(_)
+            ) {
                 // `(a)` => `a`
                 *expr = inner_expr.clone();
                 expr.visit_mut_with(self);
@@ -43,24 +57,26 @@ impl VisitMut for EmptyStatementRemover {
             match inner_expr {
                 Expr::Ident(ident) => {
                     // `(id) = 1` => `id = 1`
-                    *node = SimpleAssignTarget::Ident(BindingIdent { id: ident.clone(), type_ann: None});
-                },
+                    *node = SimpleAssignTarget::Ident(BindingIdent {
+                        id: ident.clone(),
+                        type_ann: None,
+                    });
+                }
                 Expr::Member(member) => {
                     // `(a.b) = 1` => `a.b = 1`
                     *node = SimpleAssignTarget::Member(member.clone());
-                },
+                }
                 Expr::Paren(paren) => {
                     // `(...) = 1` => `... = 1`
                     *node = SimpleAssignTarget::Paren(paren.clone());
                     node.visit_mut_with(self);
                     return;
-                },
+                }
                 _ => {}
             }
         }
         node.visit_mut_children_with(self);
     }
-    
 }
 
 pub fn remove_empty_statements(node: &mut Program) {

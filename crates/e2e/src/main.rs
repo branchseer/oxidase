@@ -1,13 +1,18 @@
-#![recursion_limit = "256"]
-
-mod format_ts;
 mod common;
+mod format_ts;
+mod cache;
 
 use std::{
-    cell::RefCell, fmt::Display, fs::read_to_string, path::{Path, PathBuf}, sync::{
+    cell::RefCell,
+    fmt::Display,
+    fs::read_to_string,
+    panic::{catch_unwind, AssertUnwindSafe},
+    path::{Path, PathBuf},
+    sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
-    }, time::Duration
+    },
+    time::Duration,
 };
 
 use format_ts::format_js;
@@ -35,7 +40,7 @@ impl Display for Failure {
             FailureKind::OutputInvalidSyntax(output) => {
                 f.write_str("output_invalid_syntax\n\n")?;
                 f.write_str(&output)?;
-            },
+            }
             FailureKind::UnmatchedOutput { expected, actual } => {
                 SimpleDiff::from_str(expected, actual, "expected", "actual").fmt(f)?;
             }
@@ -46,7 +51,6 @@ impl Display for Failure {
 }
 
 fn main() {
-
     let test_repos_path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("test_repos/typescript/tests/cases/compiler");
     let walk = WalkBuilder::new(test_repos_path)
@@ -88,7 +92,8 @@ fn main() {
 
     // all_paths.retain(|path| path.file_name().unwrap() == "typeParameterLeak.ts");
     all_paths.sort_unstable();
-    // all_paths.truncate(1000);
+
+    let all_paths = &all_paths;
 
     let all_cnt = all_paths.len();
     let finished_cnt = Arc::new(AtomicUsize::new(0));
@@ -129,7 +134,6 @@ fn main() {
                     return None;
                 };
 
-
                 let source_type = match process_result.kind {
                     SourceKind::Module => SourceType::ts().with_module(true),
                     SourceKind::Script => SourceType::ts().with_module(false),
@@ -137,7 +141,9 @@ fn main() {
 
                 ALLOCATOR.with_borrow_mut(|allocator| {
                     let allocator = allocator.get_or_insert_with(|| Allocator::default());
-                    let mut source = oxidase::Source::Borrowed(&process_result.ts);
+                    allocator.reset();
+                    let mut source: oxidase::Source<'_, '_> =
+                        oxidase::Source::Borrowed(&process_result.ts);
 
                     let transpile_return = oxidase::transpile(
                         allocator,
@@ -152,7 +158,10 @@ fn main() {
                         return None;
                     }
                     if path.ends_with("ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts") {
-                        println!("ClassDeclarationWithInvalidConstOnPropertyDeclaration\n{}", process_result.ts)
+                        println!(
+                            "ClassDeclarationWithInvalidConstOnPropertyDeclaration\n{}",
+                            process_result.ts
+                        )
                     }
                     let Ok(expected_output) = format_js(&process_result.js) else {
                         // Ignore invalid expected js output
@@ -181,7 +190,8 @@ fn main() {
                     None
                 })
             })
-        }).map(|failure| {
+        })
+        .map(|failure| {
             println!("{}", &failure);
             failure
         })

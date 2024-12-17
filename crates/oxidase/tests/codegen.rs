@@ -14,12 +14,12 @@ fn prop_param_non_empty_constructor() {
 
 #[test]
 fn prop_param_super() {
-    check_transpile("class A { constructor(private a, readonly b) { foo<T>(); super() } }", "class A { a; b; constructor( a,  b) { foo(); super(), this.a = a; this.b = b; } }");
+    check_transpile("class A { constructor(private a, readonly b) { foo<T>(); super() } }", "class A { a; b; constructor( a,  b) { foo(); super(); this.a = a; this.b = b; } }");
 }
 
 #[test]
 fn prop_param_super_semicolon() {
-    check_transpile("class A { constructor(private a, readonly b) { foo<T>(); super(); } }", "class A { a; b; constructor( a,  b) { foo(); super(), this.a = a; this.b = b; } }");
+    check_transpile("class A { constructor(private a, readonly b) { foo<T>(); super(); } }", "class A { a; b; constructor( a,  b) { foo(); super(); this.a = a; this.b = b; } }");
 }
 
 #[test]
@@ -29,5 +29,28 @@ fn declare_class_with_codegen_inside() {
 
 #[test]
 fn prop_param_with_type() {
-    check_transpile("class X { a; constructor( a) { this.a = a; } }", "");
+    check_transpile("class X { a; constructor(a: number) { this.a = a; } }", "class X { a; constructor(a) { this.a = a; } }");
+}
+
+#[test]
+fn prop_param_in_function_type() {
+    check_transpile(r#"class C1 { constructor(a: (public b) => void) {} }"#, "class C1 { constructor(a) {} }");
+}
+
+
+
+#[test]
+fn prop_param_optional() {
+    check_transpile(r#"class A { constructor(public a?) {} }"#, "class A { a; constructor( a) { this.a = a;} }");
+}
+
+
+#[test]
+fn prop_param_init() {
+    check_transpile(r#"class A { constructor(public a: string = 1) {} }"#, "class A { a; constructor( a = 1) { this.a = a;} }");
+}
+
+#[test]
+fn export_import_eq() {
+    check_transpile(r#"class A { constructor(public a: string = 1) {} }"#, "class A { a; constructor( a = 1) { this.a = a;} }");
 }

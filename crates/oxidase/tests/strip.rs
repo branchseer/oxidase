@@ -193,3 +193,8 @@ fn strip_export_default_decl() {
 fn wrap_object_with_type_assertion_after_arrow() {
     check_transpile("() => <Type>{ a: 1 }", "() => ({ a: 1 })");
 }
+
+#[test]
+fn prop_method_empty_body() {
+    check_transpile("a = { b() }", "a = {  }");
+}

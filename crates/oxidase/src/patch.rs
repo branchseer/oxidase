@@ -3,7 +3,7 @@ use oxc_span::Span;
 
 use crate::source::Source;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Patch<'a> {
     pub span: Span,
     pub replacement: &'a str,

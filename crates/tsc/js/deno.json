@@ -1,8 +1,0 @@
-{
-  "imports": {
-    "@ts-morph/bootstrap": "npm:@ts-morph/bootstrap@^0.25.0"
-  },
-  "tasks": {
-    "build": "deno run --allow-all build.ts"
-  }
-}

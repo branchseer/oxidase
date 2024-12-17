@@ -1,6 +1,6 @@
 use std::{sync::Once};
 
-static TSC_JS_SOURCE: &str = include_str!("../js/dist.js");
+static TSC_JS_SOURCE: &str = include_str!(concat!(env!("OUT_DIR"), "/dist.js"));
 
 pub struct Tsc {
     isolate: v8::OwnedIsolate,
