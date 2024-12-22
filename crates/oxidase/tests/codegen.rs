@@ -54,3 +54,17 @@ fn prop_param_init() {
 fn export_import_eq() {
     check_transpile(r#"class A { constructor(public a: string = 1) {} }"#, "class A { a; constructor( a = 1) { this.a = a;} }");
 }
+
+#[test]
+fn prop_param_prologue() {
+    check_transpile(r#"class B { constructor(public arg) { "a"; alert(1) } }"#, r#"class B { arg; constructor( arg) { "a"; this.arg = arg; alert(1) } }"#);
+}
+
+// #[test]
+// fn dbg() {
+//     check_transpile(r#"
+//     declare function getVariableValues(inputs: {
+//       readonly [variable: string]: unknown;
+//     }): CoercedVariableValues;   
+//     "#, "");
+// }

@@ -1,8 +1,20 @@
 import { createProjectSync, ts } from "@ts-morph/bootstrap";
 
 const TS_SOURCE_FILENAME = "a.ts";
+
+const compilerOptions: ts.CompilerOptions = {
+	target: ts.ScriptTarget.Latest,
+	module: ts.ModuleKind.Preserve,
+	verbatimModuleSyntax: true,
+	useDefineForClassFields: true,
+	removeComments: true,
+	noCheck: true,
+	noEmit: true,
+};
+
 export function processTs(
 	sourceCode: string,
+	stripEnumAndNamespace: boolean,
 ): {
 	ts: string;
 	js: string;
@@ -17,16 +29,6 @@ export function processTs(
 			scriptKind: ts.ScriptKind.TS,
 		},
 	);
-
-	const compilerOptions: ts.CompilerOptions = {
-		target: ts.ScriptTarget.Latest,
-		module: ts.ModuleKind.Preserve,
-		verbatimModuleSyntax: true,
-		useDefineForClassFields: true,
-		removeComments: true,
-		noCheck: true,
-		noEmit: true,
-	};
 
 	const program = project.createProgram({
 		rootNames: [TS_SOURCE_FILENAME],
@@ -62,11 +64,11 @@ export function processTs(
 			}
 
 			// ## Codegen node (enum and namespace)
-			if (
+			if (stripEnumAndNamespace && (
 				(ts.isEnumDeclaration(node) || ts.isModuleDeclaration(node)) &&
 				// Preseve declare enum/namespace
 				(ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Ambient) === 0
-			) {
+			)) {
 				return ts.factory.createNotEmittedStatement(node);
 			}
 			return node;
@@ -78,9 +80,7 @@ export function processTs(
 		sourceFile,
 	);
 
-	const { outputText } = ts.transpileModule(transformedCode, {
-		compilerOptions,
-	});
+	const { outputText } = ts.transpileModule(transformedCode, { compilerOptions });
 
 	return {
 		ts: transformedCode,

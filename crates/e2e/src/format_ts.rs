@@ -1,9 +1,41 @@
-use crate::common::remove_empty_statements;
 use std::sync::Arc;
 use swc::{Compiler, PrintArgs};
 use swc_common::{FileName, SourceMap, Spanned};
 use swc_ecma_ast::{EsVersion, Program};
 use swc_ecma_parser::{with_file_parser, Syntax};
+use swc_ecma_transforms::fixer::{fixer, paren_remover};
+
+use std::ops::Deref;
+use swc_ecma_ast::{BindingIdent, ClassMember, Expr, Lit, ModuleItem, SimpleAssignTarget, Stmt};
+use swc_ecma_visit::{VisitMut, VisitMutWith};
+
+pub struct EmptyStatementRemover;
+
+impl VisitMut for EmptyStatementRemover {
+    fn visit_mut_class_members(&mut self, members: &mut Vec<ClassMember>) {
+        members.retain(|member: &ClassMember| !matches!(member, ClassMember::Empty(..)));
+        members.visit_mut_children_with(self);
+    }
+    fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
+        items.retain(|item| !matches!(item, ModuleItem::Stmt(Stmt::Empty(..))));
+        items.visit_mut_children_with(self);
+    }
+    fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
+        stmts.retain(|stmt| !matches!(stmt, Stmt::Empty(..)));
+        stmts.visit_mut_children_with(self);
+    }
+    fn visit_mut_lit(&mut self, lit: &mut Lit) {
+        if let Lit::Str(str_lit) = lit {
+            // Make printer generate consistent quote type instead of relying on the input
+            str_lit.raw = None;
+        }
+        lit.visit_mut_children_with(self);
+    }
+}
+
+pub fn remove_empty_statements(node: &mut Program) {
+    node.visit_mut_with(&mut EmptyStatementRemover);
+}
 
 pub fn format_js(source: impl Into<String>) -> anyhow::Result<String> {
     let cm = Arc::new(SourceMap::default());
@@ -26,6 +58,9 @@ pub fn format_js(source: impl Into<String>) -> anyhow::Result<String> {
     .map_err(|err| anyhow::anyhow!("{:?}: {}", err.span(), err.kind().msg()))?;
 
     remove_empty_statements(&mut program);
+    program = program.apply(paren_remover(None));
+    program = program.apply(fixer(None));
+
 
     let compiler = Compiler::new(cm);
 
@@ -43,38 +78,10 @@ mod tests {
     #[test]
     fn test_format_ts() {
         assert_eq!(
-            format_js(r#"const alias = require('foo')"#).unwrap(),
-            "const alias = require(\"foo\");\n"
-        );
-        assert_eq!(
-            format_js(r#"var let = 1; await 2"#).unwrap(),
-            "var let = 1;\nawait 2;\n"
-        );
-    }
-
-    #[test]
-    fn hello() {
-        assert_eq!(
-            format_js(
-                r#" class B  {
-    
-    
-    
-     get readonlyProp(): string{}
-     set readonlyProp(val: string){}
-    
-}
-class C extends B {
-    get prop() { return "foo"; }
-    set prop(v) { }
-    raw = "edge";
-     ro = "readonly please";
-    readonlyProp;
-    m() { }
-}"#
-            )
-            .unwrap(),
-            "a.a = 1;\n"
+            format_js(r#"class A { }
+class B { }
+class C extends A,B { }"#).unwrap(),
+"",
         );
     }
 }

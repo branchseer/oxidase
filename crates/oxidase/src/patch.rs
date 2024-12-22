@@ -20,6 +20,13 @@ pub fn apply_patches<'alloc>(
     if patches.is_empty() {
         return;
     }
+    if cfg!(debug_assertions) {
+        for i in 0..patches.len() - 1 {
+            if patches[i].span.end > patches[i + 1].span.start {
+                panic!("Unordered/overlapped patches: {:?}", patches)
+            }
+        }
+    }
     let mut is_any_replacement_exceeded = false;
     let source_str = source.as_str();
     let mut patched_source_len = source_str.len();
@@ -48,7 +55,7 @@ pub fn apply_patches<'alloc>(
             }
         } else {
             // sort is faster than sort_unstable when the slice is partially sorted.
-            patches.sort_by_key(|patch| patch.span.start);
+            // patches.sort_by_key(|patch| patch.span.start);
             // ！is_any_replacement_exceeded && !prefer_blank_space
             // Copy patch replacements and substring between patches from left to right. No new string alloc needed
             // Safety:
@@ -79,7 +86,7 @@ pub fn apply_patches<'alloc>(
         }
     } else {
         // sort is faster than sort_unstable when the slice is partially sorted.
-        patches.sort_by_key(|patch| patch.span.start);
+        // patches.sort_by_key(|patch| patch.span.start);
     
         // is_any_replacement_exceeded
         // Replacement might overrides substrings between patches. Allocating new string

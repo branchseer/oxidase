@@ -9,13 +9,13 @@ pub struct Tsc {
 }
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-pub struct ProcessTsResult {
+pub struct TranspileOutput {
     pub js: String,
     pub ts: String,
     pub kind: SourceKind,
 }
 
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub enum SourceKind {
     Module,
@@ -69,17 +69,18 @@ impl Tsc {
         }
     }
 
-    pub fn process_ts(&mut self, source: &str) -> Option<ProcessTsResult> {
+    pub fn process_ts(&mut self, source: &str, strip_enum_and_namespace: bool) -> Option<TranspileOutput> {
         let process_ts_func = self.process_ts_func.open(&mut self.isolate);
         let context = self.context.open(&mut self.isolate);
         let handle_scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
         let global = context.global(handle_scope);
 
         let source = v8::String::new(handle_scope, source)?;
+        let strip_enum_and_namespace = v8::Boolean::new(handle_scope, strip_enum_and_namespace);
 
         let result = process_ts_func
-            .call(handle_scope, global.cast(), &[source.cast()])?;
-        serde_v8::from_v8::<Option<ProcessTsResult>>(handle_scope, result).ok()?
+            .call(handle_scope, global.cast(), &[source.cast(), strip_enum_and_namespace.cast()])?;
+        serde_v8::from_v8::<Option<TranspileOutput>>(handle_scope, result).ok()?
     }
 }
 
@@ -90,14 +91,14 @@ mod tests {
     fn invalid_syntax() {
         let mut tsc = Tsc::new();
 
-        assert_eq!(tsc.process_ts("let a: string ="), None);
+        assert_eq!(tsc.process_ts("let a: string =", true), None);
     }
 
     #[test]
     fn script_kind() {
         let mut tsc = Tsc::new();
         assert_eq!(
-            tsc.process_ts("let a: string = 1").unwrap().kind,
+            tsc.process_ts("let a: string = 1", true).unwrap().kind,
             SourceKind::Script
         );
     }
@@ -105,9 +106,8 @@ mod tests {
     fn module_kind() {
         let mut tsc = Tsc::new();
         assert_eq!(
-            tsc.process_ts("export let a: string = 1").unwrap().kind,
+            tsc.process_ts("export let a: string = 1", true).unwrap().kind,
             SourceKind::Module
         );
     }
-
 }

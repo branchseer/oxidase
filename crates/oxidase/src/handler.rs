@@ -74,13 +74,25 @@ enum ScopeKind<'alloc> {
         current_element_first_modifier_patch_index: Option<usize>,
         parameter_prop_id_spans_in_first_constructor: Vec<'alloc, Span>,
         parameter_prop_id_spans: Vec<'alloc, Span>,
-        super_call_stmt_end: Option<u32>,
+        parameter_prop_init_insert_start: Option<u32>,
     },
     FunctionWithParamProps {
         parameter_prop_id_spans: Vec<'alloc, Span>,
         super_call_stmt_end: Option<u32>,
         last_super_call_expr_span: Option<Span>,
+        prologue_scan_state: PrologueScanState,
     },
+}
+
+#[derive(Debug)]
+enum PrologueScanState {
+    Init,
+    InPrologues {
+        last_prologue_stmt_end: u32,
+    },
+    End {
+        last_prologue_stmt_end: Option<u32>,
+    }
 }
 
 impl<'source, 'alloc> StripHandler<'source, 'alloc> {
@@ -243,7 +255,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                 current_element_first_modifier_patch_index: None,
                 parameter_prop_id_spans_in_first_constructor: Vec::new_in(&self.allocator),
                 parameter_prop_id_spans: Vec::new_in(&self.allocator),
-                super_call_stmt_end: None,
+                parameter_prop_init_insert_start: None,
             },
             _ => ScopeKind::Other,
         };
@@ -257,7 +269,8 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         match scope.kind {
             ScopeKind::FunctionWithParamProps {
                 parameter_prop_id_spans: parameter_prop_id_spans_under_function,
-                super_call_stmt_end: super_call_stmt_end_under_function,
+                super_call_stmt_end,
+                prologue_scan_state,
                 ..
             } => {
                 let Some(Scope {
@@ -265,7 +278,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                         ScopeKind::Class {
                             parameter_prop_id_spans_in_first_constructor,
                             parameter_prop_id_spans: parameter_prop_id_spans_under_class,
-                            super_call_stmt_end: super_call_stmt_end_under_class,
+                            parameter_prop_init_insert_start,
                             ..
                         },
                     ..
@@ -291,7 +304,11 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                         .extend_from_slice(&parameter_prop_id_spans_under_function);
                 }
                 *parameter_prop_id_spans_under_class = parameter_prop_id_spans_under_function;
-                *super_call_stmt_end_under_class = super_call_stmt_end_under_function
+                *parameter_prop_init_insert_start = super_call_stmt_end.or_else(|| match prologue_scan_state {
+                    PrologueScanState::InPrologues { last_prologue_stmt_end } => Some(last_prologue_stmt_end),
+                    PrologueScanState::End { last_prologue_stmt_end } => last_prologue_stmt_end,
+                    PrologueScanState::Init => None,
+                })
             }
             _ => {}
         }
@@ -442,6 +459,20 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
     fn handle_statement(&mut self, stmt: &Statement<'ast, VoidAllocator>) {
         let stmt_span = stmt.span();
         self.statement_asi(stmt_span);
+        if let ScopeKind::FunctionWithParamProps {
+            prologue_scan_state,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind {
+            match prologue_scan_state {
+                PrologueScanState::Init => *prologue_scan_state = PrologueScanState::End { last_prologue_stmt_end: None },
+                PrologueScanState::InPrologues { last_prologue_stmt_end } => {
+                    if *last_prologue_stmt_end != stmt_span.end {
+                        *prologue_scan_state = PrologueScanState::End { last_prologue_stmt_end: Some(*last_prologue_stmt_end) }
+                    }
+                },
+                PrologueScanState::End { .. } => {}
+            }
+        }
     }
 
     fn handle_expression_statement(
@@ -451,6 +482,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         if let ScopeKind::FunctionWithParamProps {
             super_call_stmt_end,
             last_super_call_expr_span,
+            prologue_scan_state,
             ..
         } = &mut self.scope_stack.last_mut().unwrap().kind
         {
@@ -461,7 +493,12 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                 if call_expr.span() == *last_super_call_expr_span {
                     *super_call_stmt_end = Some(expr_stmt.span.end);
                 }
-            };
+            }
+            if let Expression::StringLiteral(_) = expr_stmt.expression {
+                if matches!(prologue_scan_state, PrologueScanState::Init | PrologueScanState::InPrologues { .. }) {
+                    *prologue_scan_state = PrologueScanState::InPrologues { last_prologue_stmt_end: expr_stmt.span.end }
+                }
+            }
         };
     }
 
@@ -580,12 +617,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             ..
         } = &mut self.scope_stack.last_mut().unwrap().kind
         else {
-            if cfg!(debug_assertions) {
-                panic!(
-                    "Class element modifiers encountered in non-class scope: {:?}",
-                    modifiers.span
-                );
-            }
+            // ClassElementModifiers could also be encountered in types e.g. `{ readonly a: string }`
             return;
         };
 
@@ -637,7 +669,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         if let ScopeKind::Class {
             parameter_prop_id_spans_in_first_constructor,
             parameter_prop_id_spans,
-            super_call_stmt_end,
+            parameter_prop_init_insert_start,
             ..
         } = &mut self.scope_stack.last_mut().unwrap().kind
         {
@@ -659,12 +691,12 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                     &self.allocator,
                 );
 
-                let insert_span = if let Some(super_call_stmt_end) = *super_call_stmt_end {
+                let insert_span = if let Some(parameter_prop_init_insert_start) = *parameter_prop_init_insert_start {
                     prop_init_code.push(';');
-                    if self.source.as_bytes()[super_call_stmt_end as usize - 1] == b';' {
-                        Span::new(super_call_stmt_end - 1, super_call_stmt_end)
+                    if self.source.as_bytes()[parameter_prop_init_insert_start as usize - 1] == b';' {
+                        Span::new(parameter_prop_init_insert_start - 1, parameter_prop_init_insert_start)
                     } else {
-                        Span::new(super_call_stmt_end, super_call_stmt_end)
+                        Span::new(parameter_prop_init_insert_start, parameter_prop_init_insert_start)
                     }
                 } else {
                     let body_start = body.span().start;
@@ -691,7 +723,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                     parameter_prop_id_spans_in_first_constructor.clear();
                 }
                 parameter_prop_id_spans.clear();
-                *super_call_stmt_end = None;
+                *parameter_prop_init_insert_start = None;
             }
         };
     }
@@ -860,6 +892,7 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                         prop_id_spans
                     },
                     last_super_call_expr_span: None,
+                    prologue_scan_state: PrologueScanState::Init,
                 }
             }
             ScopeKind::FunctionWithParamProps {

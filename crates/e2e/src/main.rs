@@ -1,29 +1,24 @@
-mod common;
-mod format_ts;
 mod cache;
+mod format_ts;
 
 use std::{
-    cell::RefCell,
-    fmt::Display,
-    fs::read_to_string,
-    panic::{catch_unwind, AssertUnwindSafe},
-    path::{Path, PathBuf},
-    sync::{
+    any::Any, cell::RefCell, fmt::{Debug, Display}, fs::read_to_string, os::unix::fs::MetadataExt, panic::{catch_unwind, AssertUnwindSafe}, path::{Path, PathBuf}, sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
-    },
-    time::Duration,
+    }, time::{Duration, SystemTime}
 };
 
+use cache::BaselineCache;
 use format_ts::format_js;
-use ignore::WalkBuilder;
+use ignore::{DirEntry, WalkBuilder};
 use oxidase::{Allocator, SourceType, TranspileOptions};
 use oxidase_tsc::{SourceKind, Tsc};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use similar_asserts::SimpleDiff;
+use thread_local::ThreadLocal;
 
 pub struct Failure {
-    pub path: PathBuf,
+    pub path: String,
     pub input: String,
     pub kind: FailureKind,
 }
@@ -31,11 +26,12 @@ pub struct Failure {
 pub enum FailureKind {
     OutputInvalidSyntax(String),
     UnmatchedOutput { expected: String, actual: String },
+    Panicked(Box<dyn Any + Send>)
 }
 
 impl Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("## {}\n", self.path.display()))?;
+        f.write_fmt(format_args!("## {}\n", self.path))?;
         match &self.kind {
             FailureKind::OutputInvalidSyntax(output) => {
                 f.write_str("output_invalid_syntax\n\n")?;
@@ -43,6 +39,16 @@ impl Display for Failure {
             }
             FailureKind::UnmatchedOutput { expected, actual } => {
                 SimpleDiff::from_str(expected, actual, "expected", "actual").fmt(f)?;
+            },
+            FailureKind::Panicked(panic_err) => {
+                let panic_message = if let Some(message) = panic_err.downcast_ref::<&'static str>() {
+                    *message
+                } else if let Some(message) =  panic_err.downcast_ref::<String>() {
+                    message.as_str()
+                } else {
+                    "unknown message"
+                };
+                f.write_fmt(format_args!("Transpiler panicked: {}", panic_message))?;
             }
         }
         f.write_str("\n")?;
@@ -50,52 +56,77 @@ impl Display for Failure {
     }
 }
 
-fn main() {
-    let test_repos_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("test_repos/typescript/tests/cases/compiler");
-    let walk = WalkBuilder::new(test_repos_path)
+pub const FIXTURES_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+pub const BASELINE_CACHE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baseline_cache/");
+
+fn collect_entries<E: Send>(
+    path: impl AsRef<Path>,
+    flat_map: impl (Fn(DirEntry) -> Option<E>) + Send + Sync,
+    entries: &mut Vec<E>,
+) {
+    let tls_entries: ThreadLocal<RefCell<Vec<E>>> = Default::default();
+    let walk = WalkBuilder::new(path)
         .standard_filters(false)
         .build_parallel();
-
-    let all_paths: Mutex<Vec<PathBuf>> = Default::default();
-
     walk.run(|| {
-        struct CollectOnDrop<'a> {
-            paths: Vec<PathBuf>,
-            all_paths: &'a Mutex<Vec<PathBuf>>,
-        }
-        impl<'a> Drop for CollectOnDrop<'a> {
-            fn drop(&mut self) {
-                self.all_paths.lock().unwrap().extend(self.paths.drain(..));
+        Box::new(|dir_entry| {
+            let dir_entry = dir_entry.unwrap();
+            if let Some(entry) = flat_map(dir_entry) {
+                let entries = tls_entries.get_or_default();
+                let mut entries = entries.borrow_mut();
+                entries.push(entry);
             }
-        }
-        let mut collect_on_drop = CollectOnDrop {
-            paths: vec![],
-            all_paths: &all_paths,
-        };
-
-        Box::new(move |entry| {
-            let entry = entry.unwrap();
-            let file_name = entry.file_name().as_encoded_bytes();
-            if !(file_name.ends_with(b".js")
-                || file_name.ends_with(b".mjs")
-                || file_name.ends_with(b".ts")
-                || file_name.ends_with(b".mts"))
-            {
-                return ignore::WalkState::Continue;
-            }
-            collect_on_drop.paths.push(entry.into_path());
             ignore::WalkState::Continue
         })
     });
-    let mut all_paths = all_paths.into_inner().unwrap();
+
+    for tls_entries in tls_entries {
+        entries.extend(tls_entries.into_inner());
+    }
+}
+
+pub struct FileEntry {
+    pub full_path: String,
+    pub mtime: SystemTime,
+}
+
+fn main() {
+    let transpile_fixture_dirs =
+        read_to_string(Path::new(FIXTURES_PATH).join("transpile_list.txt")).unwrap();
+    let transpile_fixture_dirs = transpile_fixture_dirs.lines().flat_map(|line| {
+        let line = line.trim();
+        if line.is_empty() {
+            None
+        } else {
+            Some(line)
+        }
+    });
+
+    let mut entries = Vec::<FileEntry>::new();
+    for transpile_fixture_dir in transpile_fixture_dirs {
+        collect_entries(
+            Path::new(FIXTURES_PATH).join(transpile_fixture_dir),
+            |dir_entry| {
+                let path = dir_entry.path().to_str()?;
+                if path.ends_with(".js") || path.ends_with(".mjs") || path.ends_with(".ts") {
+                    Some(FileEntry {
+                        full_path: path.to_owned(),
+                        mtime: dir_entry.metadata().unwrap().modified().unwrap(),
+                    })
+                } else {
+                    None
+                }
+            },
+            &mut entries,
+        );
+    }
 
     // all_paths.retain(|path| path.file_name().unwrap() == "typeParameterLeak.ts");
-    all_paths.sort_unstable();
+    entries.sort_by(|entry1, entry2| entry1.full_path.cmp(&entry2.full_path));
 
-    let all_paths = &all_paths;
+    let entries = &entries;
 
-    let all_cnt = all_paths.len();
+    let all_cnt = entries.len();
     let finished_cnt = Arc::new(AtomicUsize::new(0));
     std::thread::spawn({
         let finished_cnt = finished_cnt.clone();
@@ -113,24 +144,25 @@ fn main() {
 
     thread_local! { static TSC: RefCell<Option<Tsc>> = RefCell::new(None) }
     thread_local! { static ALLOCATOR: RefCell<Option<Allocator>> = RefCell::new(None) }
-    struct IncreOnDrop<'a>(&'a AtomicUsize);
-    impl<'a> Drop for IncreOnDrop<'a> {
-        fn drop(&mut self) {
-            self.0.fetch_add(1, Ordering::Relaxed);
-        }
-    }
 
-    let failures: Vec<Failure> = all_paths
+    let baseline_cache = BaselineCache::new(BASELINE_CACHE_PATH);
+
+    let failures: Vec<Failure> = entries
         .par_iter()
-        .flat_map(|path| -> Option<Failure> {
-            let _incre_on_drop = IncreOnDrop(&finished_cnt);
-            let Ok(source) = read_to_string(path) else {
-                return None;
-            };
+        .flat_map(|file_entry| -> Option<Failure> {
+            let ret = TSC.with_borrow_mut(|tsc| {
+                let Ok(source) = read_to_string(&file_entry.full_path) else {
+                    return None;
+                };
 
-            TSC.with_borrow_mut(|tsc| {
+                let path = file_entry.full_path.strip_prefix(FIXTURES_PATH).unwrap();
+
                 let tsc = tsc.get_or_insert_with(|| Tsc::new());
-                let Some(process_result) = tsc.process_ts(&source) else {
+                let Some(process_result) =
+                    baseline_cache.get_or_insert_with(path, file_entry.mtime, || {
+                        tsc.process_ts(&source, true)
+                    })
+                else {
                     return None;
                 };
 
@@ -145,32 +177,37 @@ fn main() {
                     let mut source: oxidase::Source<'_, '_> =
                         oxidase::Source::Borrowed(&process_result.ts);
 
-                    let transpile_return = oxidase::transpile(
+                    let transpile_return = match catch_unwind(AssertUnwindSafe(|| oxidase::transpile(
                         allocator,
                         TranspileOptions {
                             source_type,
                             prefer_blank_space: true,
                         },
                         &mut source,
-                    );
+                    ))) {
+                        Ok(ok) => ok,
+                        Err(panic_err) => {
+                            return Some(Failure {
+                                path: path.to_owned(),
+                                input: process_result.ts,
+                                kind: FailureKind::Panicked(panic_err),
+                            });
+                        }
+                    };
                     if transpile_return.panicked || !transpile_return.errors.is_empty() {
                         // Ignore oxc parser error. it should be covered by oxc_parser's conformance tests
                         return None;
                     }
-                    if path.ends_with("ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts") {
-                        println!(
-                            "ClassDeclarationWithInvalidConstOnPropertyDeclaration\n{}",
-                            process_result.ts
-                        )
-                    }
-                    let Ok(expected_output) = format_js(&process_result.js) else {
+                    let Ok(Ok(expected_output)) = catch_unwind(|| format_js(&process_result.js)) else {
+                        // eprintln!("swc err formating expected output {}", path);
                         // Ignore invalid expected js output
                         return None;
                     };
                     let output = source.as_str();
+
                     let Ok(formated_output) = format_js(output) else {
                         return Some(Failure {
-                            path: path.clone(),
+                            path: path.to_owned(),
                             input: process_result.ts.clone(),
                             kind: FailureKind::OutputInvalidSyntax(output.to_string()),
                         });
@@ -178,7 +215,7 @@ fn main() {
 
                     if formated_output != expected_output {
                         return Some(Failure {
-                            path: path.clone(),
+                            path: path.to_owned(),
                             input: process_result.ts,
                             kind: FailureKind::UnmatchedOutput {
                                 expected: expected_output,
@@ -189,7 +226,9 @@ fn main() {
                     // let formated_output =
                     None
                 })
-            })
+            });
+            finished_cnt.fetch_add(1, Ordering::Relaxed);
+            ret
         })
         .map(|failure| {
             println!("{}", &failure);
@@ -198,4 +237,5 @@ fn main() {
         .collect();
 
     dbg!(failures.len());
+    baseline_cache.save();
 }
