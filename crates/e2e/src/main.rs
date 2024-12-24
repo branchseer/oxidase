@@ -11,11 +11,12 @@ use std::{
 use cache::BaselineCache;
 use format_ts::format_js;
 use ignore::{DirEntry, WalkBuilder};
-use oxidase::{Allocator, SourceType, TranspileOptions};
+use oxidase::{Allocator, SourceType, String as AllocatorString};
 use oxidase_tsc::{SourceKind, Tsc};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use similar_asserts::SimpleDiff;
 use thread_local::ThreadLocal;
+
 
 pub struct Failure {
     pub path: String,
@@ -174,15 +175,11 @@ fn main() {
                 ALLOCATOR.with_borrow_mut(|allocator| {
                     let allocator = allocator.get_or_insert_with(|| Allocator::default());
                     allocator.reset();
-                    let mut source: oxidase::Source<'_, '_> =
-                        oxidase::Source::Borrowed(&process_result.ts);
+                    let mut source = AllocatorString::from_str_in(&process_result.ts, &allocator);
 
                     let transpile_return = match catch_unwind(AssertUnwindSafe(|| oxidase::transpile(
                         allocator,
-                        TranspileOptions {
                             source_type,
-                            prefer_blank_space: true,
-                        },
                         &mut source,
                     ))) {
                         Ok(ok) => ok,
@@ -194,7 +191,7 @@ fn main() {
                             });
                         }
                     };
-                    if transpile_return.panicked || !transpile_return.errors.is_empty() {
+                    if transpile_return.parser_panicked || !transpile_return.parser_errors.is_empty() {
                         // Ignore oxc parser error. it should be covered by oxc_parser's conformance tests
                         return None;
                     }

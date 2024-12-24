@@ -1,4 +1,8 @@
 {
     "rust-analyzer.checkOnSave": true,
     "deno.enable": false,
+    "search.exclude": {
+        "crates/e2e/fixtures/ecosystem": true,
+        "crates/e2e/generated": true
+    },
 }

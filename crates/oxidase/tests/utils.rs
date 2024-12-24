@@ -13,9 +13,9 @@ pub fn check_transpile(source: &str, expected_out: &str) {
         &mut source,
     );
     assert!(
-        ret.errors.is_empty(),
+        ret.parser_errors.is_empty(),
         "Transpile returned errors: {:?}",
-        ret.errors
+        ret.parser_errors
     );
     assert_eq!(source.as_str(), expected_out);
 }

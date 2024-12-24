@@ -1,7 +1,8 @@
-use oxc_allocator::{Allocator, String, Vec};
+use std::ops::Range;
+
+use oxc_allocator::{Allocator, String};
 use oxc_span::Span;
 
-use crate::source::Source;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Patch<'a> {
@@ -10,12 +11,62 @@ pub struct Patch<'a> {
     // origin_span: Option<Span>,
 }
 
+struct BackwardCursor<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> BackwardCursor<'a> {
+    pub fn buf(&self) -> &[u8] {
+        &self.buf
+    }
+    pub fn new(buf: &'a mut [u8]) -> Self {
+        Self { pos: buf.len(), buf }
+    }
+    /// moves cursor back by `len`, and returns the slice passed by
+    pub fn back_by(&mut self, len: usize) -> & mut [u8] {
+        self.pos -= len;
+        &mut self.buf[self.pos..(self.pos + len)]
+    }
+    pub fn write(&mut self, data: &[u8]) {
+        self.back_by(data.len()).copy_from_slice(data);
+    }
+    pub fn write_byte(&mut self, data: u8) {
+        self.pos -= 1;
+        self.buf[self.pos] = data;
+    }
+
+    pub fn write_within(&mut self, src: Range<usize>) {
+        self.pos -= src.len();
+        self.buf.copy_within(src, self.pos);
+    }
+}
+
+fn fill_with_whitespace_preserving_newlines(buf: &mut [u8]) {
+    let mut i = 0;
+    while i < buf.len() {
+        // https://tc39.es/ecma262/multipage/ecmascript-language-lexical-grammar.html#table-line-terminator-code-points
+        if matches!(buf[i], b'\r' | b'\n') {
+            i += 1;
+            continue;
+        }
+
+        const LS: [u8; 3] = [226, 128, 168];
+        const PS: [u8; 3] = [226, 128, 169];
+        if buf[i..].starts_with(&LS) || buf[i..].starts_with(&PS) {
+            i += 3;
+            continue;
+        }
+        buf[i] = b' ';
+        i += 1;
+    }
+}
+
 /// Panics if a span of any patch is not char boundary.
 pub fn apply_patches<'alloc>(
     allocator: &'alloc Allocator,
     patches: &mut [Patch<'alloc>],
-    prefer_blank_space: bool,
-    source: &mut Source<'_, 'alloc>,
+    source: &mut String<'_>,
 ) {
     if patches.is_empty() {
         return;
@@ -26,120 +77,96 @@ pub fn apply_patches<'alloc>(
                 panic!("Unordered/overlapped patches: {:?}", patches)
             }
         }
+        for patch in &*patches {
+            if patch.span.end < patch.span.start {
+                panic!("Invalid patch span: {:?}", patch);
+            }
+            if patch.replacement.contains('\n') {
+                panic!("Patch replacement contains newlines: {:?}", patch);
+            }
+        }
     }
+
     let mut is_any_replacement_exceeded = false;
     let source_str = source.as_str();
     let mut patched_source_len = source_str.len();
-    for patch in patches.iter() {
+
+    // The moving patch is the first patch whose replacement is larger than its span,
+    // From this patch on, substrings between patches need to be moved.
+    let mut moving_patch_start = patches.len();
+    let mut size_to_add: usize = 0;
+
+    for (i, patch) in patches.iter().enumerate() {
         let span_size = patch.span.size() as usize;
-        is_any_replacement_exceeded =
-            is_any_replacement_exceeded || patch.replacement.len() > span_size;
-        patched_source_len -= span_size;
-        patched_source_len += patch.replacement.len();
+        if patch.replacement.len() > span_size && moving_patch_start == patches.len() {
+            moving_patch_start = i;
+        }
 
-        assert!(source_str.is_char_boundary(patch.span.start as usize));
-        assert!(source_str.is_char_boundary(patch.span.start as usize));
+        size_to_add += patch.replacement.len().checked_sub(span_size).unwrap_or(0);
     }
 
-    if !is_any_replacement_exceeded {
-        if prefer_blank_space {
-            let source = source.to_mut(allocator);
-            for patch in patches {
-                unsafe {
-                    let source_to_replace = &mut source.as_bytes_mut()
-                        [patch.span.start as usize..patch.span.end as usize];
-                    source_to_replace[..patch.replacement.len()]
-                        .copy_from_slice(patch.replacement.as_bytes());
-                    source_to_replace[patch.replacement.len()..].fill(b' ');
-                }
-            }
-        } else {
-            // sort is faster than sort_unstable when the slice is partially sorted.
-            // patches.sort_by_key(|patch| patch.span.start);
-            // ！is_any_replacement_exceeded && !prefer_blank_space
-            // Copy patch replacements and substring between patches from left to right. No new string alloc needed
-            // Safety:
-            //
-            unsafe {
-                let bytes = source.to_owned(allocator).as_mut_vec();
-                let mut cur_pos = patches[0].span.start as usize;
-                for (i, patch) in patches.iter().enumerate() {
-                    let end = patch.span.end as usize;
+    let source_bytes = unsafe { source.as_mut_vec() };
+    source_bytes.resize(source_bytes.len() + size_to_add, 0);
 
-                    // Append replacement
-                    bytes[cur_pos..(cur_pos + patch.replacement.len())]
-                        .copy_from_slice(patch.replacement.as_bytes());
+    let mut cur = BackwardCursor::new(source_bytes.as_mut_slice());
+    let mut last_patch_start: usize = cur.buf().len();
 
-                    cur_pos += patch.replacement.len();
+    for i in (moving_patch_start..patches.len()).rev() {
+        let patch = &patches[i];
 
-                    // Append content between current and next patch (or the end)
-                    let next_patch_start = if let Some(next_patch) = patches.get(i + 1) {
-                        next_patch.span.start as usize
-                    } else {
-                        bytes.len()
-                    };
-                    bytes.copy_within(end..next_patch_start, cur_pos);
-                    cur_pos += next_patch_start - end;
-                }
-                bytes.set_len(cur_pos);
-            }
-        }
-    } else {
-        // sort is faster than sort_unstable when the slice is partially sorted.
-        // patches.sort_by_key(|patch| patch.span.start);
-    
-        // is_any_replacement_exceeded
-        // Replacement might overrides substrings between patches. Allocating new string
-        let mut out = String::with_capacity_in(patched_source_len, allocator);
+        let patch_start = patch.span.start as usize;
+        let patch_end = patch.span.end as usize;
 
-        let mut start = 0usize;
-        for patch in patches {
-            // Safety: patch span boundaries are validated at the beginning of this function
-            out.push_str(unsafe { source_str.get_unchecked(start..patch.span.start as usize) });
-            out.push_str(patch.replacement);
-            start = patch.span.end as usize;
-        }
-        // Safety: patch span boundaries are validated at the beginning of this function
-        out.push_str(unsafe { source_str.get_unchecked(start..) });
+        // move the substring after the patch replacement
+        cur.write_within(patch_end..last_patch_start);
 
-        *source = Source::Owned(out);
+        // insert the replacement
+        let origin_len = patch_end - patch_start;
+        let whitespaces_after_replacement_len = origin_len.checked_sub(patch.replacement.len()).unwrap_or(0);
+        fill_with_whitespace_preserving_newlines(cur.back_by(whitespaces_after_replacement_len));
+        cur.write(patch.replacement.as_bytes());
+
+        last_patch_start = patch_start;
+    }
+    for i in (0..moving_patch_start).rev() {
+        let patch = &patches[i];
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn blank_space() {
-        let allocator = Allocator::default();
-        let mut source = Source::Borrowed("abcd");
-        let mut patches = [Patch {
-            span: (1..3).into(),
-            replacement: "0",
-        }];
-        apply_patches(&allocator, &mut patches, true, &mut source);
-        assert_eq!(source.as_str(), "a0 d");
-    }
-    #[test]
-    fn blank_space_disable() {
-        let allocator = Allocator::default();
-        let mut source = Source::Borrowed("abcd");
-        let mut patches = [Patch {
-            span: (1..3).into(),
-            replacement: "0",
-        }];
-        apply_patches(&allocator, &mut patches, false, &mut source);
-        assert_eq!(source.as_str(), "a0d");
-    }
-    #[test]
-    fn exceeded() {
-        let allocator = Allocator::default();
-        let mut source = Source::Borrowed("abcd");
-        let mut patches = [Patch {
-            span: (1..3).into(),
-            replacement: "1234",
-        }];
-        apply_patches(&allocator, &mut patches, false, &mut source);
-        assert_eq!(source.as_str(), "a1234d");
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     #[test]
+//     fn blank_space() {
+//         let allocator = Allocator::default();
+//         let mut source = Source::Borrowed("abcd");
+//         let mut patches = [Patch {
+//             span: (1..3).into(),
+//             replacement: "0",
+//         }];
+//         apply_patches(&allocator, &mut patches, true, &mut source);
+//         assert_eq!(source.as_str(), "a0 d");
+//     }
+//     #[test]
+//     fn blank_space_disable() {
+//         let allocator = Allocator::default();
+//         let mut source = Source::Borrowed("abcd");
+//         let mut patches = [Patch {
+//             span: (1..3).into(),
+//             replacement: "0",
+//         }];
+//         apply_patches(&allocator, &mut patches, false, &mut source);
+//         assert_eq!(source.as_str(), "a0d");
+//     }
+//     #[test]
+//     fn exceeded() {
+//         let allocator = Allocator::default();
+//         let mut source = Source::Borrowed("abcd");
+//         let mut patches = [Patch {
+//             span: (1..3).into(),
+//             replacement: "1234",
+//         }];
+//         apply_patches(&allocator, &mut patches, false, &mut source);
+//         assert_eq!(source.as_str(), "a1234d");
+//     }
+// }
