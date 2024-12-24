@@ -8,7 +8,6 @@ use oxc_span::Span;
 pub struct Patch<'a> {
     pub span: Span,
     pub replacement: &'a str,
-    // origin_span: Option<Span>,
 }
 
 struct BackwardCursor<'a> {
