@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use oxc_allocator::{Allocator, String};
+use oxc_allocator::String;
 use oxc_span::Span;
 
 
@@ -126,6 +126,8 @@ pub fn apply_patches<'alloc>(
 
 #[cfg(test)]
 mod tests {
+    use oxc_allocator::Allocator;
+
     use super::*;
     #[test]
     fn basic() {
