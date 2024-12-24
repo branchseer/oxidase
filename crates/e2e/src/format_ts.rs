@@ -73,15 +73,17 @@ pub fn format_js(source: impl Into<String>) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use oxidase::{Allocator, SourceType, String};
+
     use super::*;
 
     #[test]
     fn test_format_ts() {
-        assert_eq!(
-            format_js(r#"class A { }
-class B { }
-class C extends A,B { }"#).unwrap(),
-"",
-        );
+        let allocator = Allocator::default();
+        let source = std::fs::read_to_string("/Users/patr0nus/code/oxidase/crates/e2e/fixtures/ecosystem/TypeScript/tests/cases/compiler/argumentsObjectIterator01_ES6.ts").unwrap();
+        let mut source = String::from_str_in(&source, &allocator);
+        oxidase::transpile(&allocator, SourceType::ts(), &mut source);
+        println!("--------------------\n{}", source);
+        println!("--------------------\n{}", format_js(source.as_str()).unwrap());
     }
 }

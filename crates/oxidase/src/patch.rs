@@ -17,9 +17,9 @@ struct BackwardCursor<'a> {
 }
 
 impl<'a> BackwardCursor<'a> {
-    pub fn buf(&self) -> &[u8] {
-        &self.buf
-    }
+    // pub fn buf(&self) -> &[u8] {
+    //     &self.buf
+    // }
     pub fn new(buf: &'a mut [u8]) -> Self {
         Self { pos: buf.len(), buf }
     }
@@ -37,34 +37,35 @@ impl<'a> BackwardCursor<'a> {
     }
 
     pub fn write_within(&mut self, src: Range<usize>) {
-        self.pos -= src.len();
-        self.buf.copy_within(src, self.pos);
+        let dest_start = self.pos - src.len();
+        if src.start != dest_start {
+            self.buf.copy_within(src, dest_start);
+        }
+        self.pos = dest_start;
     }
-}
 
-fn fill_with_whitespace_preserving_newlines(buf: &mut [u8]) {
-    let mut i = 0;
-    while i < buf.len() {
-        // https://tc39.es/ecma262/multipage/ecmascript-language-lexical-grammar.html#table-line-terminator-code-points
-        if matches!(buf[i], b'\r' | b'\n') {
-            i += 1;
-            continue;
-        }
+    pub fn write_whitespaces_preserving_newlines(&mut self, src: Range<usize>) {
+        let mut src_index = src.end as isize - 1;
+        'scan_src: while src_index >= src.start as isize {
+            // https://tc39.es/ecma262/multipage/ecmascript-language-lexical-grammar.html#table-line-terminator-code-points
+            const LS: &[u8] = &[226, 128, 168];
+            const PS: &[u8] = &[226, 128, 169];
 
-        const LS: [u8; 3] = [226, 128, 168];
-        const PS: [u8; 3] = [226, 128, 169];
-        if buf[i..].starts_with(&LS) || buf[i..].starts_with(&PS) {
-            i += 3;
-            continue;
+            for line_terminator in [b"\n", b"\r", LS, PS] {
+                if self.buf[..=src_index as usize].ends_with(line_terminator) {
+                    self.write(line_terminator);
+                    src_index -= line_terminator.len() as isize;
+                    continue 'scan_src;
+                }
+            }
+            self.write_byte(b' ');
+            src_index -= 1;
         }
-        buf[i] = b' ';
-        i += 1;
     }
 }
 
 /// Panics if a span of any patch is not char boundary.
 pub fn apply_patches<'alloc>(
-    allocator: &'alloc Allocator,
     patches: &mut [Patch<'alloc>],
     source: &mut String<'_>,
 ) {
@@ -87,86 +88,69 @@ pub fn apply_patches<'alloc>(
         }
     }
 
-    let mut is_any_replacement_exceeded = false;
-    let source_str = source.as_str();
-    let mut patched_source_len = source_str.len();
+    let mut patched_source_len = source.len();
 
-    // The moving patch is the first patch whose replacement is larger than its span,
-    // From this patch on, substrings between patches need to be moved.
-    let mut moving_patch_start = patches.len();
-    let mut size_to_add: usize = 0;
-
-    for (i, patch) in patches.iter().enumerate() {
+    for patch in patches.iter() {
         let span_size = patch.span.size() as usize;
-        if patch.replacement.len() > span_size && moving_patch_start == patches.len() {
-            moving_patch_start = i;
-        }
-
-        size_to_add += patch.replacement.len().checked_sub(span_size).unwrap_or(0);
+        patched_source_len += patch.replacement.len().checked_sub(span_size).unwrap_or(0);
     }
 
+    let mut last_patch_start: usize = source.len();
+
     let source_bytes = unsafe { source.as_mut_vec() };
-    source_bytes.resize(source_bytes.len() + size_to_add, 0);
+    source_bytes.resize(patched_source_len, 0);
 
     let mut cur = BackwardCursor::new(source_bytes.as_mut_slice());
-    let mut last_patch_start: usize = cur.buf().len();
 
-    for i in (moving_patch_start..patches.len()).rev() {
-        let patch = &patches[i];
+    for patch in patches.iter().rev() {
 
         let patch_start = patch.span.start as usize;
         let patch_end = patch.span.end as usize;
 
-        // move the substring after the patch replacement
+        // write substring after patch span
         cur.write_within(patch_end..last_patch_start);
 
-        // insert the replacement
-        let origin_len = patch_end - patch_start;
-        let whitespaces_after_replacement_len = origin_len.checked_sub(patch.replacement.len()).unwrap_or(0);
-        fill_with_whitespace_preserving_newlines(cur.back_by(whitespaces_after_replacement_len));
-        cur.write(patch.replacement.as_bytes());
+        // write whitespaces after replacement
+        cur.write_whitespaces_preserving_newlines((patch_start + patch.replacement.len())..patch_end);
 
+        // write replacement
+        cur.write(patch.replacement.as_bytes());
+        
         last_patch_start = patch_start;
     }
-    for i in (0..moving_patch_start).rev() {
-        let patch = &patches[i];
-    }
+    cur.write_within(0..last_patch_start);
+
+    debug_assert_eq!(cur.pos, 0);
+    debug_assert!(core::str::from_utf8(source_bytes.as_slice()).is_ok());
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     #[test]
-//     fn blank_space() {
-//         let allocator = Allocator::default();
-//         let mut source = Source::Borrowed("abcd");
-//         let mut patches = [Patch {
-//             span: (1..3).into(),
-//             replacement: "0",
-//         }];
-//         apply_patches(&allocator, &mut patches, true, &mut source);
-//         assert_eq!(source.as_str(), "a0 d");
-//     }
-//     #[test]
-//     fn blank_space_disable() {
-//         let allocator = Allocator::default();
-//         let mut source = Source::Borrowed("abcd");
-//         let mut patches = [Patch {
-//             span: (1..3).into(),
-//             replacement: "0",
-//         }];
-//         apply_patches(&allocator, &mut patches, false, &mut source);
-//         assert_eq!(source.as_str(), "a0d");
-//     }
-//     #[test]
-//     fn exceeded() {
-//         let allocator = Allocator::default();
-//         let mut source = Source::Borrowed("abcd");
-//         let mut patches = [Patch {
-//             span: (1..3).into(),
-//             replacement: "1234",
-//         }];
-//         apply_patches(&allocator, &mut patches, false, &mut source);
-//         assert_eq!(source.as_str(), "a1234d");
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn basic() {
+        let allocator = Allocator::default();
+        let mut source = String::from_str_in("abc\nd", &allocator);
+        let mut patches = [Patch {
+            span: (0..0).into(),
+            replacement: "x",
+        }, Patch {
+            span: (1..3).into(),
+            replacement: "0",
+        }];
+        apply_patches(&mut patches,  &mut source);
+        assert_eq!(source.as_str(), "xa0 \nd");
+    }
+
+    #[test]
+    fn all_removed() {
+        let allocator = Allocator::default();
+        let mut source = String::from_str_in("abc\nd", &allocator);
+        let mut patches = [Patch {
+            span: (0..source.len() as u32).into(),
+            replacement: "",
+        }];
+        apply_patches(&mut patches,  &mut source);
+        assert_eq!(source.as_str(), "   \n ");
+    }
+}

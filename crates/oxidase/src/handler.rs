@@ -87,12 +87,8 @@ enum ScopeKind<'alloc> {
 #[derive(Debug)]
 enum PrologueScanState {
     Init,
-    InPrologues {
-        last_prologue_stmt_end: u32,
-    },
-    End {
-        last_prologue_stmt_end: Option<u32>,
-    }
+    InPrologues { last_prologue_stmt_end: u32 },
+    End { last_prologue_stmt_end: Option<u32> },
 }
 
 impl<'source, 'alloc> StripHandler<'source, 'alloc> {
@@ -304,11 +300,16 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                         .extend_from_slice(&parameter_prop_id_spans_under_function);
                 }
                 *parameter_prop_id_spans_under_class = parameter_prop_id_spans_under_function;
-                *parameter_prop_init_insert_start = super_call_stmt_end.or_else(|| match prologue_scan_state {
-                    PrologueScanState::InPrologues { last_prologue_stmt_end } => Some(last_prologue_stmt_end),
-                    PrologueScanState::End { last_prologue_stmt_end } => last_prologue_stmt_end,
-                    PrologueScanState::Init => None,
-                })
+                *parameter_prop_init_insert_start =
+                    super_call_stmt_end.or_else(|| match prologue_scan_state {
+                        PrologueScanState::InPrologues {
+                            last_prologue_stmt_end,
+                        } => Some(last_prologue_stmt_end),
+                        PrologueScanState::End {
+                            last_prologue_stmt_end,
+                        } => last_prologue_stmt_end,
+                        PrologueScanState::Init => None,
+                    })
             }
             _ => {}
         }
@@ -462,14 +463,23 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         if let ScopeKind::FunctionWithParamProps {
             prologue_scan_state,
             ..
-        } = &mut self.scope_stack.last_mut().unwrap().kind {
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        {
             match prologue_scan_state {
-                PrologueScanState::Init => *prologue_scan_state = PrologueScanState::End { last_prologue_stmt_end: None },
-                PrologueScanState::InPrologues { last_prologue_stmt_end } => {
-                    if *last_prologue_stmt_end != stmt_span.end {
-                        *prologue_scan_state = PrologueScanState::End { last_prologue_stmt_end: Some(*last_prologue_stmt_end) }
+                PrologueScanState::Init => {
+                    *prologue_scan_state = PrologueScanState::End {
+                        last_prologue_stmt_end: None,
                     }
-                },
+                }
+                PrologueScanState::InPrologues {
+                    last_prologue_stmt_end,
+                } => {
+                    if *last_prologue_stmt_end != stmt_span.end {
+                        *prologue_scan_state = PrologueScanState::End {
+                            last_prologue_stmt_end: Some(*last_prologue_stmt_end),
+                        }
+                    }
+                }
                 PrologueScanState::End { .. } => {}
             }
         }
@@ -495,8 +505,13 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                 }
             }
             if let Expression::StringLiteral(_) = expr_stmt.expression {
-                if matches!(prologue_scan_state, PrologueScanState::Init | PrologueScanState::InPrologues { .. }) {
-                    *prologue_scan_state = PrologueScanState::InPrologues { last_prologue_stmt_end: expr_stmt.span.end }
+                if matches!(
+                    prologue_scan_state,
+                    PrologueScanState::Init | PrologueScanState::InPrologues { .. }
+                ) {
+                    *prologue_scan_state = PrologueScanState::InPrologues {
+                        last_prologue_stmt_end: expr_stmt.span.end,
+                    }
                 }
             }
         };
@@ -691,12 +706,21 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                     &self.allocator,
                 );
 
-                let insert_span = if let Some(parameter_prop_init_insert_start) = *parameter_prop_init_insert_start {
+                let insert_span = if let Some(parameter_prop_init_insert_start) =
+                    *parameter_prop_init_insert_start
+                {
                     prop_init_code.push(';');
-                    if self.source.as_bytes()[parameter_prop_init_insert_start as usize - 1] == b';' {
-                        Span::new(parameter_prop_init_insert_start - 1, parameter_prop_init_insert_start)
+                    if self.source.as_bytes()[parameter_prop_init_insert_start as usize - 1] == b';'
+                    {
+                        Span::new(
+                            parameter_prop_init_insert_start - 1,
+                            parameter_prop_init_insert_start,
+                        )
                     } else {
-                        Span::new(parameter_prop_init_insert_start, parameter_prop_init_insert_start)
+                        Span::new(
+                            parameter_prop_init_insert_start,
+                            parameter_prop_init_insert_start,
+                        )
                     }
                 } else {
                     let body_start = body.span().start;
@@ -750,7 +774,9 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
 
     fn handle_object_property(&mut self, prop: &ObjectProperty<'ast, VoidAllocator>) {
         if prop.method {
-            if let (Some(patch), Expression::FunctionExpression(function_value)) = (self.patches.last(), &prop.value) {
+            if let (Some(patch), Expression::FunctionExpression(function_value)) =
+                (self.patches.last(), &prop.value)
+            {
                 if patch.span == function_value.span() {
                     self.push_strip(prop.span);
                 }
@@ -763,6 +789,40 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         &mut self,
         arrow_func: &ArrowFunctionExpression<'ast, VoidAllocator>,
     ) {
+        // `()
+        // => ...`
+        // to
+        // `(
+        // ) => ...`
+        if let Some(return_type) = &arrow_func.return_type {
+            if let Ok(return_type_strip_patch_index) = self
+                .patches
+                .binary_search_by_key(&return_type.span().start, |patch| patch.span.start)
+            {
+                let strip_patch = &mut self.patches.as_mut_slice()[return_type_strip_patch_index];
+                debug_assert_eq!(strip_patch.span, return_type.span());
+
+                // strips from the closing parenthesis of the params
+                strip_patch.span.start = arrow_func.params.span().end - 1;
+                debug_assert_eq!(self.source.as_bytes()[strip_patch.span.start as usize], b')', "expect arrow function with return type annotation to have closing parenthesis after params");
+
+                // replace the return type annoations's last character (which should always be in the same line as the arrow token) with closing parenthesis of the params
+                strip_patch.span.end -= 1;
+                let closing_parenthesis_span =
+                    Span::new(strip_patch.span.end, strip_patch.span.end + 1);
+                self.patches.insert(
+                    return_type_strip_patch_index + 1,
+                    Patch {
+                        span: closing_parenthesis_span,
+                        replacement: ")",
+                    },
+                );
+            } else {
+                #[cfg(debug_assertions)]
+                panic!("Failed to find the patch to strip the return type annotaion of an arrow function (annocation span: {:?})", return_type.span());
+            }
+        }
+
         // () => <T>{ a: 1 } to
         // () => ({ a: 1 })
         if !arrow_func.expression {
@@ -849,17 +909,15 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
         }
         let param_id_span = match &param.pattern.kind {
             BindingPatternKind::BindingIdentifier(param_id) => {
-
                 let mut param_id_span = param_id.span();
 
                 if let Some(optional_mark) = &param.pattern.optional {
                     param_id_span.end = optional_mark.span.start;
-                }
-                else if let Some(type_annotation) = &param.pattern.type_annotation {
+                } else if let Some(type_annotation) = &param.pattern.type_annotation {
                     param_id_span.end = type_annotation.span().start;
                 }
                 param_id_span
-            },
+            }
             BindingPatternKind::AssignmentPattern(assign_pat) => {
                 // public ... = 1
                 let start = assign_pat.span().start;
@@ -870,13 +928,15 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                 }
                 let mut end = start;
                 while end <= assign_pat.span().end {
-                    if matches!(self.source_bytes()[end as usize], b'?' | b'=' | b',' | b')' | b'/' | b':') {
+                    if matches!(
+                        self.source_bytes()[end as usize],
+                        b'?' | b'=' | b',' | b')' | b'/' | b':'
+                    ) {
                         break;
                     }
                     end += 1
                 }
                 Span::new(start, end)
-                
             }
             _ => return,
         };

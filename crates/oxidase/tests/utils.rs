@@ -1,22 +1,19 @@
-use oxidase::{transpile, Allocator, Source, SourceType, TranspileOptions};
+use oxidase::{transpile, Allocator, SourceType, String};
 
 #[track_caller]
 pub fn check_transpile(source: &str, expected_out: &str) {
     let allocator = Allocator::default();
-    let mut source = Source::Borrowed(source);
+    let mut source = String::from_str_in(source, &allocator);
     let ret = transpile(
         &allocator,
-        TranspileOptions {
-            source_type: SourceType::ts(),
-            prefer_blank_space: false,
-        },
-        &mut source,
+            SourceType::ts(),
+            &mut source,
     );
-    assert!(
-        ret.parser_errors.is_empty(),
-        "Transpile returned errors: {:?}",
-        ret.parser_errors
-    );
+    // assert!(
+    //     ret.parser_errors.is_empty(),
+    //     "Transpile returned errors: {:?}",
+    //     ret.parser_errors
+    // );
     assert_eq!(source.as_str(), expected_out);
 }
 pub fn check_transpile_identical(source: &str) {

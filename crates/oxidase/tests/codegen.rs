@@ -1,5 +1,6 @@
 mod utils;
 
+use oxidase::{transpile, Allocator, SourceType, String};
 use utils::check_transpile;
 
 #[test]
@@ -60,11 +61,17 @@ fn prop_param_prologue() {
     check_transpile(r#"class B { constructor(public arg) { "a"; alert(1) } }"#, r#"class B { arg; constructor( arg) { "a"; this.arg = arg; alert(1) } }"#);
 }
 
-// #[test]
-// fn dbg() {
-//     check_transpile(r#"
-//     declare function getVariableValues(inputs: {
-//       readonly [variable: string]: unknown;
-//     }): CoercedVariableValues;   
-//     "#, "");
-// }
+const s: &str = r#"(): {
+} => {}"#;
+
+#[test]
+fn dbg() {
+    let allocator = Allocator::default();
+    let mut source = String::from_str_in(s, &allocator);
+    let ret = transpile(
+        &allocator,
+            SourceType::ts(),
+            &mut source,
+    );
+    println!("{}", source.as_str());
+}

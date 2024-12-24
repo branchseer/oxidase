@@ -1,5 +1,4 @@
 mod patch;
-mod source;
 mod handler;
 
 pub use oxc_allocator::Allocator;
@@ -9,7 +8,6 @@ use oxc_parser::{ParseOptions, Parser};
 pub use oxc_span::SourceType;
 use oxc_span::ModuleKind as OxcModuleKind;
 use patch::apply_patches;
-pub use source::Source;
 use handler::StripHandler;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -56,7 +54,7 @@ pub fn transpile<'alloc>(
 
     let mut patches = parser_ret.handler.into_patches();
 
-    apply_patches(allocator, &mut patches, source);
+    apply_patches(&mut patches, source);
 
     TranspileReturn {
         parser_panicked: false,
