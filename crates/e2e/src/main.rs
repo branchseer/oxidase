@@ -191,10 +191,11 @@ fn main() {
                             });
                         }
                     };
-                    if transpile_return.parser_panicked || !transpile_return.parser_errors.is_empty() {
+                    if transpile_return.parser_panicked {
                         // Ignore oxc parser error. it should be covered by oxc_parser's conformance tests
                         return None;
                     }
+
                     let Ok(Ok(expected_output)) = catch_unwind(|| format_js(&process_result.js)) else {
                         // eprintln!("swc err formating expected output {}", path);
                         // Ignore invalid expected js output
@@ -203,6 +204,9 @@ fn main() {
                     let output = source.as_str();
 
                     let Ok(formated_output) = format_js(output) else {
+                        if !transpile_return.parser_errors.is_empty() {
+                            return None;
+                        }
                         return Some(Failure {
                             path: path.to_owned(),
                             input: process_result.ts.clone(),

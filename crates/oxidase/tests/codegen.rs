@@ -61,8 +61,7 @@ fn prop_param_prologue() {
     check_transpile(r#"class B { constructor(public arg) { "a"; alert(1) } }"#, r#"class B { arg; constructor( arg) { "a"; this.arg = arg; alert(1) } }"#);
 }
 
-const s: &str = r#"(): {
-} => {}"#;
+const s: &str = r#"a = <A><B>1"#;
 
 #[test]
 fn dbg() {

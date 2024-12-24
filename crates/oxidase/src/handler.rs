@@ -611,12 +611,6 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             }
         }
     }
-    fn handle_ts_type_assertion_annotation(
-        &mut self,
-        annotation: &TSTypeAssertionAnnotation<'ast, VoidAllocator>,
-    ) {
-        self.push_strip(annotation.span);
-    }
     fn handle_class_element_modifiers(&mut self, modifiers: &ClassElementModifiers) {
         if !(modifiers.r#abstract
             || modifiers.declare
@@ -822,40 +816,17 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
                 panic!("Failed to find the patch to strip the return type annotaion of an arrow function (annocation span: {:?})", return_type.span());
             }
         }
+    }
 
-        // () => <T>{ a: 1 } to
-        // () => ({ a: 1 })
-        if !arrow_func.expression {
-            return;
-        }
-        let body_span = arrow_func.body.span();
-        let source_bytes = self.source_bytes();
-
-        // () => <....}
-        if !(source_bytes[body_span.start as usize] == b'<'
-            && source_bytes[(body_span.end - 1) as usize] == b'}')
-        {
-            return;
-        }
-
-        let Ok(type_assertion_patch_index) = self
-            .patches
-            .binary_search_by_key(&body_span.start, |patch| patch.span.start)
-        else {
-            if cfg!(debug_assertions) {
-                panic!("Failed to find the patch of type assertion (<...>) right after arrow (=>). Expected patch start: {}", body_span.start);
-            }
-            return;
-        };
-
-        let type_assertion_patch = &mut self.patches.as_mut_slice()[type_assertion_patch_index];
-
-        #[cfg(test)]
-        if !type_assertion_patch.replacement.is_empty() {
-            panic!("The patch replacement of type assertion (<...>) right after arrow (=>) is not empty: {}", type_assertion_patch.replacement);
-        }
-        type_assertion_patch.replacement = "(";
-        self.push_patch(Span::new(body_span.end, body_span.end), ")");
+    // wrap expression of TSTypeAssertion with () to handle:
+    // `() => <Foo>{ foo: 1 }`, and
+    // `return <{
+    // }>{}`
+    fn handle_ts_type_assertion_annotation(&mut self, assertion_annotaion: &TSTypeAssertionAnnotation<'ast, VoidAllocator>) {
+        self.push_patch(assertion_annotaion.span, "(");
+    }
+    fn handle_ts_type_assertion(&mut self, type_assertion: &TSTypeAssertion<'ast, VoidAllocator>) {  
+        self.patches.push(Patch { span: (type_assertion.span.end..type_assertion.span.end).into(), replacement: ")"});
     }
 
     fn handle_if_statement(&mut self, if_stmt: &IfStatement<'ast, VoidAllocator>) {
