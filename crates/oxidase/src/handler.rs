@@ -857,6 +857,9 @@ impl<'source, 'alloc, 'ast> AstHandler<'ast, VoidAllocator> for StripHandler<'so
             possible_strip_patch_of_consequent.replacement = ";"
         }
     }
+    fn handle_do_while_statement(&mut self, stmt: &DoWhileStatement<'ast, VoidAllocator>) {
+        self.non_block_body_asi(stmt.body.span());
+    }
     fn handle_while_statement(&mut self, stmt: &WhileStatement<'ast, VoidAllocator>) {
         self.non_block_body_asi(stmt.body.span());
     }

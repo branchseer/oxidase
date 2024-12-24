@@ -57,7 +57,7 @@ impl Display for Failure {
     }
 }
 
-pub const FIXTURES_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/");
+pub const FIXTURE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixture/");
 pub const BASELINE_CACHE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baseline_cache/");
 
 fn collect_entries<E: Send>(
@@ -93,7 +93,7 @@ pub struct FileEntry {
 
 fn main() {
     let transpile_fixture_dirs =
-        read_to_string(Path::new(FIXTURES_PATH).join("transpile_list.txt")).unwrap();
+        read_to_string(Path::new(FIXTURE_PATH).join("transpile_list.txt")).unwrap();
     let transpile_fixture_dirs = transpile_fixture_dirs.lines().flat_map(|line| {
         let line = line.trim();
         if line.is_empty() {
@@ -106,7 +106,7 @@ fn main() {
     let mut entries = Vec::<FileEntry>::new();
     for transpile_fixture_dir in transpile_fixture_dirs {
         collect_entries(
-            Path::new(FIXTURES_PATH).join(transpile_fixture_dir),
+            Path::new(FIXTURE_PATH).join(transpile_fixture_dir),
             |dir_entry| {
                 let path = dir_entry.path().to_str()?;
                 if path.ends_with(".js") || path.ends_with(".mjs") || path.ends_with(".ts") {
@@ -156,7 +156,7 @@ fn main() {
                     return None;
                 };
 
-                let path = file_entry.full_path.strip_prefix(FIXTURES_PATH).unwrap();
+                let path = file_entry.full_path.strip_prefix(FIXTURE_PATH).unwrap();
 
                 let tsc = tsc.get_or_insert_with(|| Tsc::new());
                 let Some(process_result) =
