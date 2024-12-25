@@ -6,32 +6,32 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-arraydeque = "0.5.1"
-arrayvec = "0.7.6"
-bumpalo = "3.16.0"
+arraydeque = { workspace = true }
+arrayvec = { workspace = true }
+bumpalo = { workspace = true }
 # derive-where = "1.2.7"
-derive_more = { version = "1.0.0", features = ["from"] }
-ghost-cell = "0.2.6"
+derive_more = { workspace = true, features = ["from"] }
+ghost-cell = { workspace = true }
 oxc_allocator = { workspace = true }
 oxc_parser = { workspace = true }
 oxc_span = { workspace = true }
 oxc_syntax = { workspace = true }
 oxc_diagnostics = { workspace = true }
 oxc_ast = { workspace = true }
-thiserror = "1.0.63"
-smallvec = "2.0.0-alpha.7"
+thiserror = { workspace = true }
+smallvec = { workspace = true }
 rustc-hash = { workspace = true }
 hashbrown = { workspace = true }
 copy_from_str = { workspace = true }
 
 [dev-dependencies]
 #assert_matches = { version = "1.5.0" }
-assert2 = "0.3.15"
+assert2 = { workspace = true }
 googletest = { workspace = true }
 rquickjs = { workspace = true }
-serde_json = "1.0.128"
+serde_json = { workspace = true }
 rstest = { workspace = true }
 rstest_reuse = { workspace = true }
 
 [features]
-unstable-bench = []
+internal-bench = []

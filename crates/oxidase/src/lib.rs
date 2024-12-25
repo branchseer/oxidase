@@ -1,15 +1,17 @@
-mod patch;
 mod handler;
+mod patch;
 
+
+use handler::StripHandler;
 pub use oxc_allocator::Allocator;
 pub use oxc_allocator::String;
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::{ParseOptions, Parser};
 use oxc_span::ast_alloc::AstAllocator;
-use oxc_span::ast_alloc::VoidAllocator;
+#[doc(hidden)] // expose for bench
+pub use oxc_span::ast_alloc::VoidAllocator;
 pub use oxc_span::SourceType;
 use patch::apply_patches;
-use handler::StripHandler;
 
 #[derive(Debug)]
 pub struct TranspileReturn {
@@ -22,26 +24,21 @@ pub fn transpile(
     source_type: SourceType,
     source: &mut String<'_>,
 ) -> TranspileReturn {
-    transpile_with_ast_allocator(allocator, &VoidAllocator::new(), source_type, source)
+    transpile_with_options(allocator, &VoidAllocator::new(), true, source_type, source)
 }
 
-#[cfg(feature = "unstable-bench")]
-pub fn transpile_allocated(
-    allocator: &Allocator,
-    source_type: SourceType,
-    source: &mut String<'_>,
-) -> TranspileReturn {
-    transpile_with_ast_allocator(allocator, allocator, source_type, source)
-}
-
-fn transpile_with_ast_allocator<A: AstAllocator>(
+#[doc(hidden)] // expose options for bench
+pub fn transpile_with_options<A: AstAllocator>(
     allocator: &Allocator,
     ast_allocator: &A,
+    allow_skip_ambient: bool,
     source_type: SourceType,
     source: &mut String<'_>,
 ) -> TranspileReturn {
     let mut parser_options = ParseOptions::default();
-    parser_options.allow_skip_ambient = true;
+    // we are here to transpile, not validate. Be as loose as possible.
+    parser_options.allow_return_outside_function = true;
+    parser_options.allow_skip_ambient = allow_skip_ambient;
     let parser = Parser::new(allocator, source.as_str(), source_type).with_options(parser_options);
     let handler = StripHandler::new(allocator, source.as_str());
 

@@ -1,4 +1,0 @@
-disallowed-types = [
-    "oxc_parser::lexer::Lexer",
-    "oxc_parser::lexer::LexerCheckpoint",
-]

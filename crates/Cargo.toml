@@ -1,5 +1,5 @@
 [workspace]
-members = [ "oxidase", "e2e", "tsc"]
+members = [ "oxidase", "e2e", "tsc", "bench"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -24,9 +24,43 @@ googletest = "0.12.0"
 anyhow = "1.0.89"
 rstest_reuse = "0.7.0"
 rstest = "0.23.0"
+arraydeque = "0.5.1"
+arrayvec = "0.7.6"
+assert2 = "0.3.15"
+bumpalo = "3.16.0"
+dashmap = "6.1.0"
+derive_more = "1.0.0"
+ghost-cell = "0.2.6"
+ignore = "0.4.23"
+serde_json = "1.0.128"
+serde_v8 = "0.235.0"
+similar-asserts = "1.6.0"
+smallvec = "2.0.0-alpha.7"
+swc = "9.0.1"
+swc_common = "5.0.0"
+swc_fast_ts_strip = "6.0.0"
+swc_ecma_ast = "5.0.0"
+swc_ecma_parser = "6.0.1"
+swc_ecma_transforms = "8.0.0"
+swc_ecma_utils = "6.0.0"
+swc_ecma_visit = "5.0.0"
+thiserror = "1.0.63"
+v8 = "130.0.2"
+criterion = "0.5.1"
+
+
+
+[profile.release]
+opt-level     = 3
+lto           = "fat"
+codegen-units = 1
+strip         = "symbols"
+debug         = false
+panic         = "abort"
 
 [profile.e2e]
 inherits = "release"
 debug-assertions = true
 overflow-checks = true
 incremental = true
+panic = "unwind"

@@ -8,22 +8,22 @@ publish = false
 [dependencies]
 oxidase = { workspace = true }
 pretty_assertions = { workspace = true }
-ignore = "0.4.23"
+ignore = { workspace = true }
 oxidase_tsc = { workspace = true }
 rayon.workspace = true
-similar-asserts = "1.6.0"
+similar-asserts = { workspace = true }
 anyhow = { workspace = true }
 thread_local.workspace = true
-dashmap = "6.1.0"
+dashmap = { workspace = true }
 csv.workspace = true
 serde = { workspace = true, features = ["derive"] }
-swc_ecma_parser = "6.0.1"
-swc_common = "5.0.0"
-swc_ecma_ast = "5.0.0"
-swc = "9.0.1"
-swc_ecma_visit = "5.0.0"
-swc_ecma_transforms = "8.0.0"
-swc_ecma_utils = { version = "6.0.0", features = ["stacker"] }
+swc_ecma_parser = { workspace = true }
+swc_common = { workspace = true }
+swc_ecma_ast = { workspace = true }
+swc = { workspace = true }
+swc_ecma_visit = { workspace = true }
+swc_ecma_transforms = { workspace = true }
+swc_ecma_utils = { workspace = true, features = ["stacker"] }
 # biome_js_formatter = "0.5.7"
 # biome_js_parser = "0.5.7"
 # biome_js_syntax = "0.5.7"
