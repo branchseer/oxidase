@@ -1,3 +1,5 @@
+mod strip_visit;
+
 use std::{
     fs::read_to_string,
     hint::black_box,
@@ -143,10 +145,16 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                     for _ in 0..iters {
                         let start = Instant::now();
                         let parser = oxc_parser::Parser::new(&allocator, input, oxc_span::SourceType::ts());
+                        let mut source = String::from_str_in(input, &allocator);
                         let ret = parser.parse();
                         assert!(!ret.panicked);
                         assert!(ret.errors.is_empty());
-                        black_box(ret);
+                        let mut strip_visit = strip_visit::StripVisit::new(&allocator);
+                        oxc_ast::visit::walk::walk_program(&mut strip_visit, &ret.program);
+                        let patches = strip_visit.into_patches();
+                        oxidase::apply_patches(&patches, &mut source);
+                        drop((ret, patches));
+                        black_box(source);
                         allocator.reset();
                         elapsed += start.elapsed();
                     }

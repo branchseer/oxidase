@@ -65,7 +65,7 @@ impl<'a> BackwardCursor<'a> {
 
 /// Panics if a span of any patch is not char boundary.
 pub fn apply_patches<'alloc>(
-    patches: &mut [Patch<'alloc>],
+    patches: &[Patch<'alloc>],
     source: &mut String<'_>,
 ) {
     if patches.is_empty() {

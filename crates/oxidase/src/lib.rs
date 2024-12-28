@@ -8,10 +8,13 @@ pub use oxc_allocator::String;
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::{ParseOptions, Parser};
 use oxc_span::ast_alloc::AstAllocator;
-#[doc(hidden)] // expose for bench
-pub use oxc_span::ast_alloc::VoidAllocator;
 pub use oxc_span::SourceType;
-use patch::apply_patches;
+
+ // expose for bench 
+#[doc(hidden)]
+pub use patch::{apply_patches, Patch};
+#[doc(hidden)]
+pub use oxc_span::ast_alloc::VoidAllocator;
 
 #[derive(Debug)]
 pub struct TranspileReturn {

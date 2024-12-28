@@ -1699,6 +1699,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "oxc_allocator 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
+ "oxc_ast 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxc_parser 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxc_span 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxidase",
