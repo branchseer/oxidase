@@ -1,17 +1,22 @@
-use std::ops::Range;
+use std::{
+    cmp::min, mem::{transmute, MaybeUninit}, ops::Range, slice::from_raw_parts_mut, str::from_utf8
+};
 
-use oxc_allocator::String;
 use oxc_span::Span;
 
+use crate::string_buf::StringBuf;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// https://tc39.es/ecma262/multipage/ecmascript-language-lexical-grammar.html#table-line-terminator-code-points
+const LINE_TERMINATORS: &[&[u8]] = &[b"\n", b"\r", &[226, 128, 168], &[226, 128, 169]];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Patch<'a> {
     pub span: Span,
     pub replacement: &'a str,
 }
 
 struct BackwardCursor<'a> {
-    buf: &'a mut [u8],
+    buf: &'a mut [MaybeUninit<u8>],
     pos: usize,
 }
 
@@ -19,20 +24,25 @@ impl<'a> BackwardCursor<'a> {
     // pub fn buf(&self) -> &[u8] {
     //     &self.buf
     // }
-    pub fn new(buf: &'a mut [u8]) -> Self {
-        Self { pos: buf.len(), buf }
+    pub fn new(buf: &'a mut [MaybeUninit<u8>]) -> Self {
+        Self {
+            pos: buf.len(),
+            buf,
+        }
     }
     /// moves cursor back by `len`, and returns the slice passed by
-    pub fn back_by(&mut self, len: usize) -> & mut [u8] {
+    fn back_by(&mut self, len: usize) -> &mut [MaybeUninit<u8>] {
         self.pos -= len;
         &mut self.buf[self.pos..(self.pos + len)]
     }
-    pub fn write(&mut self, data: &[u8]) {
-        self.back_by(data.len()).copy_from_slice(data);
+    pub fn write(&mut self, src: &[u8]) {
+        // SAFETY: &[u8] and &[MaybeUninit<u8>] have the same layout
+        let uninit_src: &[MaybeUninit<u8>] = unsafe { transmute(src) };
+        self.back_by(uninit_src.len()).copy_from_slice(uninit_src);
     }
     pub fn write_byte(&mut self, data: u8) {
         self.pos -= 1;
-        self.buf[self.pos] = data;
+        self.buf[self.pos] = MaybeUninit::new(data);
     }
 
     pub fn write_within(&mut self, src: Range<usize>) {
@@ -43,15 +53,14 @@ impl<'a> BackwardCursor<'a> {
         self.pos = dest_start;
     }
 
-    pub fn write_whitespaces_preserving_newlines(&mut self, src: Range<usize>) {
+    /// Safety: self.buf[..src.end] must be inititialized.
+    pub unsafe fn write_whitespaces_preserving_newlines(&mut self, src: Range<usize>) {
         let mut src_index = src.end as isize - 1;
         'scan_src: while src_index >= src.start as isize {
-            // https://tc39.es/ecma262/multipage/ecmascript-language-lexical-grammar.html#table-line-terminator-code-points
-            const LS: &[u8] = &[226, 128, 168];
-            const PS: &[u8] = &[226, 128, 169];
-
-            for line_terminator in [b"\n", b"\r", LS, PS] {
-                if self.buf[..=src_index as usize].ends_with(line_terminator) {
+            for line_terminator in LINE_TERMINATORS {
+                if transmute::<&[MaybeUninit<u8>], &[u8]>(&self.buf[..=src_index as usize])
+                    .ends_with(line_terminator)
+                {
                     self.write(line_terminator);
                     src_index -= line_terminator.len() as isize;
                     continue 'scan_src;
@@ -63,11 +72,12 @@ impl<'a> BackwardCursor<'a> {
     }
 }
 
-/// Panics if a span of any patch is not char boundary.
-pub fn apply_patches<'alloc>(
-    patches: &[Patch<'alloc>],
-    source: &mut String<'_>,
-) {
+/// # Safety:
+/// - patches are sorted and not overlapped
+/// - patche spans are valid utf8 char boundaries
+/// 
+///  Panics if a span of any patch is not char boundary.
+pub unsafe fn apply_patches<'alloc>(patches: &[Patch<'alloc>], source: &mut impl StringBuf) {
     if patches.is_empty() {
         return;
     }
@@ -87,22 +97,26 @@ pub fn apply_patches<'alloc>(
         }
     }
 
-    let mut patched_source_len = source.len();
+    let src_len = source.as_ref().len();
+    let mut additional: usize = 0;
 
     for patch in patches.iter() {
         let span_size = patch.span.size() as usize;
-        patched_source_len += patch.replacement.len().checked_sub(span_size).unwrap_or(0);
+        additional += patch.replacement.len().checked_sub(span_size).unwrap_or(0);
     }
 
-    let mut last_patch_start: usize = source.len();
+    let mut last_patch_start: usize = src_len;
 
-    let source_bytes = unsafe { source.as_mut_vec() };
-    source_bytes.resize(patched_source_len, 0);
+    source.reserve(additional);
 
-    let mut cur = BackwardCursor::new(source_bytes.as_mut_slice());
+    let mut cur = BackwardCursor::new(unsafe {
+        from_raw_parts_mut(
+            source.as_mut_ptr() as *mut MaybeUninit<u8>,
+            src_len + additional,
+        )
+    });
 
     for patch in patches.iter().rev() {
-
         let patch_start = patch.span.start as usize;
         let patch_end = patch.span.end as usize;
 
@@ -110,48 +124,83 @@ pub fn apply_patches<'alloc>(
         cur.write_within(patch_end..last_patch_start);
 
         // write whitespaces after replacement
-        cur.write_whitespaces_preserving_newlines((patch_start + patch.replacement.len())..patch_end);
+        unsafe {
+            cur.write_whitespaces_preserving_newlines(
+                (patch_start + patch.replacement.len())..patch_end,
+            )
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            #[track_caller]
+            fn contains_line_terminators(buf: &[u8]) -> bool {
+                for i in 0..buf.len() {
+                    for line_terminator in LINE_TERMINATORS {
+                        if buf[i..].starts_with(line_terminator) {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            let source_to_be_replaced = unsafe {
+                transmute::<&[MaybeUninit<u8>], &[u8]>(
+                    &cur.buf[patch_start..min(patch_start + patch.replacement.len(), patch_end)],
+                )
+            };
+            assert!(
+                !contains_line_terminators(source_to_be_replaced),
+                "Source to be replaced (replacement is {:?}) should not contain line terminators: {:?}",
+                patch.replacement, from_utf8(source_to_be_replaced).unwrap()
+            );
+            assert!(
+                !contains_line_terminators(patch.replacement.as_bytes()),
+                "Replacement (source to be replaced is {:?}) should not contain line terminators: {:?}",
+                from_utf8(source_to_be_replaced).unwrap(), patch.replacement
+            );
+        }
 
         // write replacement
         cur.write(patch.replacement.as_bytes());
-        
+
         last_patch_start = patch_start;
     }
     cur.write_within(0..last_patch_start);
 
     debug_assert_eq!(cur.pos, 0);
-    debug_assert!(core::str::from_utf8(source_bytes.as_slice()).is_ok());
+    debug_assert!(core::str::from_utf8(unsafe { transmute(cur.buf) }).is_ok());
+
+    unsafe { source.set_len(src_len + additional) };
 }
 
 #[cfg(test)]
 mod tests {
-    use oxc_allocator::Allocator;
-
     use super::*;
     #[test]
     fn basic() {
-        let allocator = Allocator::default();
-        let mut source = String::from_str_in("abc\nd", &allocator);
-        let mut patches = [Patch {
-            span: (0..0).into(),
-            replacement: "x",
-        }, Patch {
-            span: (1..3).into(),
-            replacement: "0",
-        }];
-        apply_patches(&mut patches,  &mut source);
+        let mut source = "abc\nd".to_owned();
+        let mut patches = [
+            Patch {
+                span: (0..0).into(),
+                replacement: "x",
+            },
+            Patch {
+                span: (1..3).into(),
+                replacement: "0",
+            },
+        ];
+        unsafe { apply_patches(&mut patches, &mut source) };
         assert_eq!(source.as_str(), "xa0 \nd");
     }
 
     #[test]
     fn all_removed() {
-        let allocator = Allocator::default();
-        let mut source = String::from_str_in("abc\nd", &allocator);
+        let mut source = "abc\nd".to_owned();
         let mut patches = [Patch {
             span: (0..source.len() as u32).into(),
             replacement: "",
         }];
-        apply_patches(&mut patches,  &mut source);
+        unsafe { apply_patches(&mut patches, &mut source) };
         assert_eq!(source.as_str(), "   \n ");
     }
 }

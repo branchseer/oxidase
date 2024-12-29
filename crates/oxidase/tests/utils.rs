@@ -1,9 +1,9 @@
-use oxidase::{transpile, Allocator, SourceType, String};
+use oxidase::{transpile, Allocator, SourceType};
 
 #[track_caller]
 pub fn check_transpile(source: &str, expected_out: &str) {
     let allocator = Allocator::default();
-    let mut source = String::from_str_in(source, &allocator);
+    let mut source = String::from(source);
     let ret = transpile(
         &allocator,
             SourceType::ts(),

@@ -175,7 +175,7 @@ fn main() {
                 ALLOCATOR.with_borrow_mut(|allocator| {
                     let allocator = allocator.get_or_insert_with(|| Allocator::default());
                     allocator.reset();
-                    let mut source = AllocatorString::from_str_in(&process_result.ts, &allocator);
+                    let mut source = process_result.ts.clone();
 
                     let transpile_return = match catch_unwind(AssertUnwindSafe(|| oxidase::transpile(
                         allocator,

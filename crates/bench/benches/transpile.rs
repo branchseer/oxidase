@@ -4,18 +4,17 @@ use std::{
     fs::read_to_string,
     hint::black_box,
     path::{Path, PathBuf},
-    sync::Arc,
     time::{Duration, Instant},
 };
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use oxidase::{Allocator, SourceType, String};
+use oxidase::{Allocator, SourceType};
 use oxidase_tsc::Tsc;
 use swc::try_with_handler;
 
 fn oxidase(
     allocator: &Allocator,
-    source: &mut String<'_>,
+    source: &mut String,
     allocate_ast: bool,
     allow_skip_ambient: bool,
 ) {
@@ -69,7 +68,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iters {
-                        let mut source = String::from_str_in(input, &allocator);
+                        let mut source = String::from(input);
                         let start = Instant::now();
                         oxidase(&allocator, &mut source, false, true);
                         black_box(source);
@@ -88,7 +87,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iters {
-                        let mut source = String::from_str_in(input, &allocator);
+                        let mut source = String::from(input);
                         let start = Instant::now();
                         oxidase(&allocator, &mut source, true, false);
                         black_box(source);
@@ -133,35 +132,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         //         })
         //     },
         // );
-
-
-        let mut allocator = Default::default();
-        group.bench_with_input(
-            BenchmarkId::new("oxc_parser", param_name),
-            source.as_str(),
-            |b, input| {
-                b.iter_custom(|iters| {
-                    let mut elapsed = Duration::ZERO;
-                    for _ in 0..iters {
-                        let start = Instant::now();
-                        let parser = oxc_parser::Parser::new(&allocator, input, oxc_span::SourceType::ts());
-                        let mut source = String::from_str_in(input, &allocator);
-                        let ret = parser.parse();
-                        assert!(!ret.panicked);
-                        assert!(ret.errors.is_empty());
-                        let mut strip_visit = strip_visit::StripVisit::new(&allocator);
-                        oxc_ast::visit::walk::walk_program(&mut strip_visit, &ret.program);
-                        let patches = strip_visit.into_patches();
-                        oxidase::apply_patches(&patches, &mut source);
-                        drop((ret, patches));
-                        black_box(source);
-                        allocator.reset();
-                        elapsed += start.elapsed();
-                    }
-                    elapsed
-                })
-            },
-        );
     }
     group.finish();
 }

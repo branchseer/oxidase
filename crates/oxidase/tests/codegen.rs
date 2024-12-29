@@ -65,12 +65,4 @@ const s: &str = r#"a = <A><B>1"#;
 
 #[test]
 fn dbg() {
-    let allocator = Allocator::default();
-    let mut source = String::from_str_in(s, &allocator);
-    let ret = transpile(
-        &allocator,
-            SourceType::ts(),
-            &mut source,
-    );
-    println!("{}", source.as_str());
 }
