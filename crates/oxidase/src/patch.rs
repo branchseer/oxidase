@@ -4,7 +4,7 @@ use std::{
 
 use oxc_span::Span;
 
-use crate::string_buf::StringBuf;
+use crate::{line_term::contains_line_terminators, string_buf::StringBuf};
 
 // https://tc39.es/ecma262/multipage/ecmascript-language-lexical-grammar.html#table-line-terminator-code-points
 const LINE_TERMINATORS: &[&[u8]] = &[b"\n", b"\r", &[226, 128, 168], &[226, 128, 169]];
@@ -13,6 +13,24 @@ const LINE_TERMINATORS: &[&[u8]] = &[b"\n", b"\r", &[226, 128, 168], &[226, 128,
 pub struct Patch<'a> {
     pub span: Span,
     pub replacement: &'a str,
+}
+
+impl<'a> From<Span> for Patch<'a> {
+    fn from(span: Span) -> Self {
+        Patch { span, replacement: "" }
+    }
+}
+
+impl<'a> From<Range<u32>> for Patch<'a> {
+    fn from(range: Range<u32>) -> Self {
+        Patch { span: range.into(), replacement: "" }
+    }
+}
+
+impl<'a, S: Into<Span>> From<(S, &'a str)> for Patch<'a> {
+    fn from((span, replacement): (S, &'a str)) -> Self {
+        Patch { span: span.into(), replacement }
+    }
 }
 
 struct BackwardCursor<'a> {
@@ -132,17 +150,7 @@ pub unsafe fn apply_patches<'alloc>(patches: &[Patch<'alloc>], source: &mut impl
 
         #[cfg(debug_assertions)]
         {
-            #[track_caller]
-            fn contains_line_terminators(buf: &[u8]) -> bool {
-                for i in 0..buf.len() {
-                    for line_terminator in LINE_TERMINATORS {
-                        if buf[i..].starts_with(line_terminator) {
-                            return true;
-                        }
-                    }
-                }
-                false
-            }
+           
             let source_to_be_replaced = unsafe {
                 transmute::<&[MaybeUninit<u8>], &[u8]>(
                     &cur.buf[patch_start..min(patch_start + patch.replacement.len(), patch_end)],
