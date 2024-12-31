@@ -1,7 +1,9 @@
 mod handler;
 mod patch;
 mod string_buf;
-mod line_term;
+
+#[doc(hidden)]
+pub mod line_term;
 mod patch_builder;
 
 use handler::StripHandler;

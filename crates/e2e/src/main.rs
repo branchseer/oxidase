@@ -2,21 +2,30 @@ mod cache;
 mod format_ts;
 
 use std::{
-    any::Any, cell::RefCell, fmt::{Debug, Display}, fs::read_to_string, os::unix::fs::MetadataExt, panic::{catch_unwind, AssertUnwindSafe}, path::{Path, PathBuf}, sync::{
+    any::Any,
+    cell::RefCell,
+    fmt::{Debug, Display, Write},
+    fs::read_to_string,
+    os::unix::fs::MetadataExt,
+    panic::{catch_unwind, AssertUnwindSafe},
+    path::{Path, PathBuf},
+    sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
-    }, time::{Duration, SystemTime}
+    },
+    time::{Duration, SystemTime},
 };
 
 use cache::BaselineCache;
 use format_ts::format_js;
 use ignore::{DirEntry, WalkBuilder};
-use oxidase::{Allocator, SourceType, String as AllocatorString};
+use oxidase::{
+    line_term::line_terminator_start_iter, Allocator, SourceType, String as AllocatorString,
+};
 use oxidase_tsc::{SourceKind, Tsc};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use similar_asserts::SimpleDiff;
 use thread_local::ThreadLocal;
-
 
 pub struct Failure {
     pub path: String,
@@ -26,8 +35,15 @@ pub struct Failure {
 
 pub enum FailureKind {
     OutputInvalidSyntax(String),
-    UnmatchedOutput { expected: String, actual: String },
-    Panicked(Box<dyn Any + Send>)
+    UnmatchedOutput {
+        expected: String,
+        actual: String,
+    },
+    Panicked(Box<dyn Any + Send>),
+    LineTerminatorCountMisMatch {
+        source_line_term_starts: Vec<usize>,
+        output_line_term_starts: Vec<usize>,
+    },
 }
 
 impl Display for Failure {
@@ -40,16 +56,35 @@ impl Display for Failure {
             }
             FailureKind::UnmatchedOutput { expected, actual } => {
                 SimpleDiff::from_str(expected, actual, "expected", "actual").fmt(f)?;
-            },
+            }
             FailureKind::Panicked(panic_err) => {
-                let panic_message = if let Some(message) = panic_err.downcast_ref::<&'static str>() {
+                let panic_message = if let Some(message) = panic_err.downcast_ref::<&'static str>()
+                {
                     *message
-                } else if let Some(message) =  panic_err.downcast_ref::<String>() {
+                } else if let Some(message) = panic_err.downcast_ref::<String>() {
                     message.as_str()
                 } else {
                     "unknown message"
                 };
                 f.write_fmt(format_args!("Transpiler panicked: {}", panic_message))?;
+            }
+            FailureKind::LineTerminatorCountMisMatch {
+                source_line_term_starts,
+                output_line_term_starts,
+            } => {
+                f.write_fmt(format_args!(
+                    "Line terminator count mismatch (source: {}, output: {})",
+                    source_line_term_starts.len(),
+                    output_line_term_starts.len()
+                ))?;
+                f.write_fmt(format_args!(
+                    "Source line terminator starts: {:?}",
+                    source_line_term_starts,
+                ))?;
+                f.write_fmt(format_args!(
+                    "Output line terminator starts: {:?}",
+                    output_line_term_starts,
+                ))?;
             }
         }
         f.write_str("\n")?;
@@ -177,11 +212,9 @@ fn main() {
                     allocator.reset();
                     let mut source = process_result.ts.clone();
 
-                    let transpile_return = match catch_unwind(AssertUnwindSafe(|| oxidase::transpile(
-                        allocator,
-                            source_type,
-                        &mut source,
-                    ))) {
+                    let transpile_return = match catch_unwind(AssertUnwindSafe(|| {
+                        oxidase::transpile(allocator, source_type, &mut source)
+                    })) {
                         Ok(ok) => ok,
                         Err(panic_err) => {
                             return Some(Failure {
@@ -196,7 +229,8 @@ fn main() {
                         return None;
                     }
 
-                    let Ok(Ok(expected_output)) = catch_unwind(|| format_js(&process_result.js)) else {
+                    let Ok(Ok(expected_output)) = catch_unwind(|| format_js(&process_result.js))
+                    else {
                         // eprintln!("swc err formating expected output {}", path);
                         // Ignore invalid expected js output
                         return None;
@@ -221,6 +255,21 @@ fn main() {
                             kind: FailureKind::UnmatchedOutput {
                                 expected: expected_output,
                                 actual: formated_output,
+                            },
+                        });
+                    }
+                    let source_line_term_starts =
+                        line_terminator_start_iter(process_result.ts.as_bytes())
+                            .collect::<Vec<usize>>();
+                    let output_line_term_starts =
+                        line_terminator_start_iter(output.as_bytes()).collect::<Vec<usize>>();
+                    if output_line_term_starts.len() != source_line_term_starts.len() {
+                        return Some(Failure {
+                            path: path.to_owned(),
+                            input: process_result.ts,
+                            kind: FailureKind::LineTerminatorCountMisMatch {
+                                source_line_term_starts,
+                                output_line_term_starts,
                             },
                         });
                     }

@@ -399,14 +399,9 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         // `(const) enum A {` -> `var A; (function (A) {`
         let id = &self.source[enum_head.id.span.range()];
 
-        // strip `(const) enum` and then insert `var A; (function (` after `enum`.
-        // We don't directly replace  `(const) enum` because there could be line terminators between `const` and `enum`
-        self.patches.push(Patch {
+        // There could be line terminators between `const` and `enum`
+        self.patches.push_checking_line_terminator(Patch {
             span: (enum_head.span.start..enum_head.id.span.start).into(),
-            replacement: "",
-        });
-        self.patches.push(Patch {
-            span: (enum_head.id.span.start..enum_head.id.span.start).into(),
             replacement: format!(in &self.allocator, "var {}; (function (", id).into_bump_str(),
         });
 
@@ -834,7 +829,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         // ) => ...`
         if let Some(return_type) = &arrow_func.return_type {
             if let Ok(return_type_strip_patch_index) = self
-                .patches.patches()
+                .patches
                 .binary_search_by_key(&return_type.span().start, |patch| patch.span.start)
             {
                 let strip_patch = &mut self.patches[return_type_strip_patch_index];
@@ -893,7 +888,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             self.patches.last_mut()
         } else {
             if let Ok(index) = self
-                .patches.patches()
+                .patches
                 .binary_search_by_key(&consequent_span.start, |patch| patch.span.start)
             {
                 Some(&mut self.patches[index])
