@@ -1,17 +1,21 @@
+use std::f32::consts::E;
+use std::fmt::Write;
 use std::ops::Range;
 
 use crate::patch::Patch;
 use crate::patch_builder::PatchBuilder;
-use bumpalo::format;
+use bumpalo::{format, Bump};
+use hashbrown::hash_map::DefaultHashBuilder;
+use hashbrown::{HashMap, HashSet};
 use oxc_allocator::{Allocator, String, Vec};
 use oxc_ast::handle::Handler as AstHandler;
 use oxc_ast::{ast::*, AstScopeNode, ScopeType};
 use oxc_parser::Handler as ParserHandler;
 use oxc_span::ast_alloc::AstAllocator;
 use oxc_span::GetSpan;
+use oxc_syntax::identifier::is_identifier_name;
 
 trait SpanExt {
-    #[inline]
     fn range(self) -> Range<usize>;
 }
 impl SpanExt for Span {
@@ -61,6 +65,13 @@ enum StatementStripKind {
 struct Scope<'alloc> {
     last_statement: Option<LastStatement>,
     kind: ScopeKind<'alloc>,
+    member_identifiers_by_enum_names: HashMap<
+        &'alloc str,
+        HashSet<&'alloc str, DefaultHashBuilder, &'alloc Bump>,
+        DefaultHashBuilder,
+        &'alloc Bump,
+    >,
+    last_enum_name: Option<&'alloc str>,
 }
 
 #[derive(Debug)]
@@ -85,6 +96,15 @@ enum ScopeKind<'alloc> {
         last_super_call_expr_span: Option<Span>,
         prologue_scan_state: PrologueScanState,
     },
+    Enum {
+        member_names: Vec<'alloc, EnumName<'alloc>>,
+    },
+}
+
+#[derive(Debug)]
+struct EnumName<'alloc> {
+    value: &'alloc str,
+    is_identifier: bool,
 }
 
 #[derive(Debug)]
@@ -147,8 +167,7 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         else {
             return;
         };
-        let first_modifier_patch =
-            &mut self.patches[current_element_first_modifier_patch_index];
+        let first_modifier_patch = &mut self.patches[current_element_first_modifier_patch_index];
 
         // first_modifier_patch isn't always the prefix of a class element：
         // @foo readonly ['a'] = 1;
@@ -241,22 +260,16 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                 parameter_prop_id_spans: Vec::new_in(&self.allocator),
                 parameter_prop_init_insert_start: None,
             },
-            // ScopeType::TSEnumDeclaration => {
-            //     let patch_before_enum_id_index = self.patches.len();
-            //     self.patches.push(Patch::default());
-            //     let patch_after_enum_id_index = self.patches.len();
-            //     self.patches.push(Patch::default());
-
-            //     ScopeKind::Enum(EnumScope {
-            //         patch_before_enum_id_index,
-            //         patch_after_enum_id_index,
-            //     })
-            // }
+            ScopeType::TSEnumDeclaration => ScopeKind::Enum {
+                member_names: Vec::new_in(&self.allocator),
+            },
             _ => ScopeKind::Other,
         };
         self.scope_stack.push(Scope {
             last_statement: None,
             kind,
+            last_enum_name: None,
+            member_identifiers_by_enum_names: HashMap::new_in(&self.allocator),
         });
     }
 
@@ -311,6 +324,21 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                         } => last_prologue_stmt_end,
                         PrologueScanState::Init => None,
                     })
+            }
+            ScopeKind::Enum { member_names } => {
+                let scope = self.scope_stack.last_mut().unwrap();
+                let enum_name = scope.last_enum_name.unwrap();
+                let member_identifiers = scope
+                    .member_identifiers_by_enum_names
+                    .entry(enum_name)
+                    .or_insert_with(|| HashSet::new_in(&self.allocator));
+                member_identifiers.extend(member_names.into_iter().filter_map(|member_name| {
+                    if member_name.is_identifier {
+                        Some(member_name.value)
+                    } else {
+                        None
+                    }
+                }));
             }
             _ => {}
         }
@@ -396,19 +424,141 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     }
 
     fn handle_ts_enum_head(&mut self, enum_head: &TSEnumHead<'ast>) {
-        // `(const) enum A {` -> `var A; (function (A) {`
-        let id = &self.source[enum_head.id.span.range()];
+        let cur_scope = self.scope_stack.last_mut().unwrap();
+        let enum_name = enum_head.id.name.as_str();
+        cur_scope.last_enum_name = Some(self.allocator.alloc_str(enum_name));
+
+        // `(const) enum A {` -> `var A;(function(A,{Foo,Bar}) {{`
 
         // There could be line terminators between `const` and `enum`
         self.patches.push_checking_line_terminator(Patch {
             span: (enum_head.span.start..enum_head.id.span.start).into(),
-            replacement: format!(in &self.allocator, "var {}; (function (", id).into_bump_str(),
+            replacement: format!(in &self.allocator, "var {};(function(", enum_name)
+                .into_bump_str(),
         });
 
         self.patches.push(Patch {
             span: (enum_head.id.span.end..enum_head.id.span.end).into(),
-            replacement: ")",
+            replacement: {
+                let mut replacement = String::from_str_in(",{", &self.allocator);
+                if let Some(member_identifiers) =
+                    cur_scope.member_identifiers_by_enum_names.get(enum_name)
+                {
+                    for member_id in member_identifiers {
+                        replacement.push_str(*member_id);
+                        replacement.push(',');
+                    }
+                }
+                replacement.push_str("}){");
+                replacement.into_bump_str()
+            },
         });
+    }
+
+    fn handle_ts_enum_member_name(&mut self, member_name: &TSEnumMemberName<'ast, A>) {
+        let ScopeKind::Enum { member_names } = &mut self.scope_stack.last_mut().unwrap().kind
+        else {
+            if cfg!(debug_assertions) {
+                panic!("expect current scope to be Enum when TSEnumMemberName is encountered")
+            }
+            return;
+        };
+        let span = member_name.span();
+        let name = match member_name {
+            TSEnumMemberName::StaticStringLiteral(string_literal) => {
+                let name = string_literal.value.as_str();
+                if is_identifier_name(name) {
+                    EnumName {
+                        value: self.allocator.alloc_str(name),
+                        is_identifier: true,
+                    }
+                } else {
+                    EnumName {
+                        value: self.allocator.alloc_str(&self.source[span]),
+                        is_identifier: false,
+                    }
+                }
+            }
+            TSEnumMemberName::StaticIdentifier(id) => EnumName {
+                value: self.allocator.alloc_str(id.name.as_str()),
+                is_identifier: true,
+            },
+            _ => EnumName {
+                value: self.allocator.alloc_str(&self.source[span]),
+                is_identifier: false,
+            },
+        };
+        self.patches.push_merging_tail((
+            span,
+            if name.is_identifier {
+                // var A = 0; this[this.A = A] = "A";
+                // ^^^^^
+                format!(in &self.allocator, "var {}", name.value)
+            } else {
+                // this[this["C\n"] = 0] = "C\n";
+                // ^^^^^^^^^^^^^^^^
+                format!(in &self.allocator, "this[this[{}]", name.value)
+            }
+            .into_bump_str(),
+        ));
+        member_names.push(name);
+    }
+
+    fn handle_ts_enum_member(&mut self, member: &TSEnumMember<'ast, A>) {
+        let ScopeKind::Enum { member_names } = &self.scope_stack.last_mut().unwrap().kind else {
+            if cfg!(debug_assertions) {
+                panic!("expect current scope to be Enum when TSEnumMember is encountered")
+            }
+            return;
+        };
+
+        let current_member_name = member_names.last().unwrap();
+        let mut replacement = String::from_str_in("", &self.allocator);
+
+        // init code
+        if member.initializer.is_none() {
+            replacement.push('=');
+            if let Some(last_member_idx) = member_names.len().checked_sub(2) {
+                let last_member_name = &member_names[last_member_idx];
+                if last_member_name.is_identifier {
+                    // = A
+                    replacement.push_str(last_member_name.value)
+                } else {
+                    // = this['A\n']
+                    replacement.push_str("this[");
+                    replacement.push_str(last_member_name.value);
+                    replacement.push(']');
+                }
+                replacement.push_str("+1");
+            } else {
+                // = 0
+                replacement.push('0');
+            };
+        };
+
+        if current_member_name.is_identifier {
+            // var A = 0; this[this.A = A] = "A";
+            //          ^^^^^^^^^^^^^^^^^^^^^^^^^
+            replacement
+                .write_fmt(format_args!(
+                    "; this[this.{0} = {0}] = '{0}';",
+                    current_member_name.value
+                ))
+                .unwrap();
+        } else {
+            // this[this["C\n"] = 0] = "C\n";
+            //                     ^^^^^^^^^^
+            replacement
+                .write_fmt(format_args!("] = {};", current_member_name.value))
+                .unwrap();
+        }
+
+        let end = member.span.end;
+        let mut span = Span::new(end, end);
+        if self.source.as_bytes().get(end as usize).copied() == Some(b',') {
+            span.end += 1;
+        }
+        self.patches.push((span, replacement.into_bump_str()));
     }
 
     #[inline]
@@ -419,8 +569,13 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         }
         let id = &self.source[enum_decl.head.id.span.range()];
 
-        self.patches.push(Patch { span: (enum_decl.span.end..enum_decl.span.end).into(), replacement: "" });
+        self.patches.push(Patch {
+            span: (enum_decl.span.end..enum_decl.span.end).into(),
+            replacement: format!(in &self.allocator, "}}).call({0}||({0}={{}}),{0},{0})", id)
+                .into_bump_str(),
+        });
     }
+
     #[inline]
     fn handle_ts_import_equals_declaration(&mut self, decl: &TSImportEqualsDeclaration<'ast, A>) {
         if decl.import_kind.is_type() {
@@ -572,11 +727,13 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     }
     #[inline]
     fn handle_ts_as_expression(&mut self, it: &TSAsExpression<'ast, A>) {
-        self.patches.push_merging_tail(it.expression.span().end..it.span.end);
+        self.patches
+            .push_merging_tail(it.expression.span().end..it.span.end);
     }
     #[inline]
     fn handle_ts_satisfies_expression(&mut self, it: &TSSatisfiesExpression<'ast, A>) {
-        self.patches.push_merging_tail(it.expression.span().end..it.span.end);
+        self.patches
+            .push_merging_tail(it.expression.span().end..it.span.end);
     }
     #[inline]
     fn handle_class_modifiers(&mut self, modifiers: &ClassModifiers) {
@@ -769,7 +926,8 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                 }
                 let prop_init_code = prop_init_code.into_bump_str();
 
-                self.patches.binary_search_insert((insert_span, prop_init_code));
+                self.patches
+                    .binary_search_insert((insert_span, prop_init_code));
             } else {
                 // clear param prop state in class scope if the method isn't constructor or the constructor body is empty (someMethod(public a)),
                 // to avoid emiting field declarations.
@@ -866,7 +1024,8 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         &mut self,
         assertion_annotaion: &TSTypeAssertionAnnotation<'ast, A>,
     ) {
-        self.patches.push_merging_tail((assertion_annotaion.span, "("));
+        self.patches
+            .push_merging_tail((assertion_annotaion.span, "("));
     }
     #[inline]
     fn handle_ts_type_assertion(&mut self, type_assertion: &TSTypeAssertion<'ast, A>) {

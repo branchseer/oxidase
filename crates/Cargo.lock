@@ -1723,6 +1723,8 @@ dependencies = [
  "pretty_assertions",
  "rayon",
  "serde",
+ "serde_json",
+ "serde_v8",
  "similar-asserts",
  "swc",
  "swc_common",
@@ -1732,6 +1734,7 @@ dependencies = [
  "swc_ecma_utils",
  "swc_ecma_visit",
  "thread_local",
+ "v8",
 ]
 
 [[package]]

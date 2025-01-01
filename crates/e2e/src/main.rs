@@ -1,5 +1,6 @@
 mod cache;
-mod format_ts;
+mod format;
+mod exec;
 
 use std::{
     any::Any,
@@ -17,7 +18,7 @@ use std::{
 };
 
 use cache::BaselineCache;
-use format_ts::format_js;
+use format::format_js;
 use ignore::{DirEntry, WalkBuilder};
 use oxidase::{
     line_term::line_terminator_start_iter, Allocator, SourceType, String as AllocatorString,
@@ -97,7 +98,7 @@ pub const BASELINE_CACHE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/base
 
 fn collect_entries<E: Send>(
     path: impl AsRef<Path>,
-    flat_map: impl (Fn(DirEntry) -> Option<E>) + Send + Sync,
+    filter_map: impl (Fn(DirEntry) -> Option<E>) + Send + Sync,
     entries: &mut Vec<E>,
 ) {
     let tls_entries: ThreadLocal<RefCell<Vec<E>>> = Default::default();
@@ -107,7 +108,7 @@ fn collect_entries<E: Send>(
     walk.run(|| {
         Box::new(|dir_entry| {
             let dir_entry = dir_entry.unwrap();
-            if let Some(entry) = flat_map(dir_entry) {
+            if let Some(entry) = filter_map(dir_entry) {
                 let entries = tls_entries.get_or_default();
                 let mut entries = entries.borrow_mut();
                 entries.push(entry);
@@ -126,7 +127,16 @@ pub struct FileEntry {
     pub mtime: SystemTime,
 }
 
+enum TestType {
+    Transpile,
+    Exec,
+}
+
 fn main() {
+    let platform = v8::new_default_platform(0, false).make_shared();
+    v8::V8::initialize_platform(platform);
+    v8::V8::initialize();
+
     let transpile_fixture_dirs =
         read_to_string(Path::new(FIXTURE_PATH).join("transpile_list.txt")).unwrap();
     let transpile_fixture_dirs = transpile_fixture_dirs.lines().flat_map(|line| {
@@ -139,26 +149,30 @@ fn main() {
     });
 
     let mut entries = Vec::<FileEntry>::new();
+
+    fn filter_map(dir_entry: DirEntry) -> Option<FileEntry> {
+        let path = dir_entry.path().to_str()?;
+        if path.ends_with(".js") || path.ends_with(".mjs") || path.ends_with(".ts") {
+            Some(FileEntry {
+                full_path: path.to_owned(),
+                mtime: dir_entry.metadata().unwrap().modified().unwrap(),
+            })
+        } else {
+            None
+        }
+    }
     for transpile_fixture_dir in transpile_fixture_dirs {
         collect_entries(
             Path::new(FIXTURE_PATH).join(transpile_fixture_dir),
-            |dir_entry| {
-                let path = dir_entry.path().to_str()?;
-                if path.ends_with(".js") || path.ends_with(".mjs") || path.ends_with(".ts") {
-                    Some(FileEntry {
-                        full_path: path.to_owned(),
-                        mtime: dir_entry.metadata().unwrap().modified().unwrap(),
-                    })
-                } else {
-                    None
-                }
-            },
+            filter_map,
             &mut entries,
         );
     }
-
-    // all_paths.retain(|path| path.file_name().unwrap() == "typeParameterLeak.ts");
-    entries.sort_by(|entry1, entry2| entry1.full_path.cmp(&entry2.full_path));
+    collect_entries(
+        Path::new(FIXTURE_PATH).join("exec"),
+        filter_map,
+        &mut entries,
+    );
 
     let entries = &entries;
 
@@ -193,80 +207,97 @@ fn main() {
 
                 let path = file_entry.full_path.strip_prefix(FIXTURE_PATH).unwrap();
 
+                let test_type = if Path::new(path).starts_with("exec") {
+                    TestType::Exec
+                } else {
+                    TestType::Transpile
+                };
+
                 let tsc = tsc.get_or_insert_with(|| Tsc::new());
-                let Some(process_result) =
+
+                let Some(tsc_output) =
                     baseline_cache.get_or_insert_with(path, file_entry.mtime, || {
-                        tsc.process_ts(&source, true)
+                        let strip_enum_and_namespace = match test_type {
+                            TestType::Exec => false,
+                            TestType::Transpile => true,
+                        };
+                        tsc.process_ts(&source, strip_enum_and_namespace)
                     })
                 else {
                     return None;
                 };
 
-                let source_type = match process_result.kind {
+                let source_type = match tsc_output.kind {
                     SourceKind::Module => SourceType::ts().with_module(true),
                     SourceKind::Script => SourceType::ts().with_module(false),
+                };
+
+                let Ok(Ok(expected_output)) = catch_unwind(|| format_js(&tsc_output.js)) else {
+                    // The tsc output can't be formatted by swc.
+                    return None;
                 };
 
                 ALLOCATOR.with_borrow_mut(|allocator| {
                     let allocator = allocator.get_or_insert_with(|| Allocator::default());
                     allocator.reset();
-                    let mut source = process_result.ts.clone();
+                    let mut output = tsc_output.ts.clone();
 
                     let transpile_return = match catch_unwind(AssertUnwindSafe(|| {
-                        oxidase::transpile(allocator, source_type, &mut source)
+                        oxidase::transpile(allocator, source_type, &mut output)
                     })) {
                         Ok(ok) => ok,
                         Err(panic_err) => {
                             return Some(Failure {
                                 path: path.to_owned(),
-                                input: process_result.ts,
+                                input: tsc_output.ts,
                                 kind: FailureKind::Panicked(panic_err),
                             });
                         }
                     };
-                    if transpile_return.parser_panicked {
-                        // Ignore oxc parser error. it should be covered by oxc_parser's conformance tests
-                        return None;
-                    }
+                    match test_type {
+                        TestType::Transpile => {
+                            if transpile_return.parser_panicked {
+                                // Ignore oxc parser error. it should be covered by oxc_parser's conformance tests
+                                return None;
+                            }
 
-                    let Ok(Ok(expected_output)) = catch_unwind(|| format_js(&process_result.js))
-                    else {
-                        // eprintln!("swc err formating expected output {}", path);
-                        // Ignore invalid expected js output
-                        return None;
-                    };
-                    let output = source.as_str();
+                            let output = output.as_str();
 
-                    let Ok(formated_output) = format_js(output) else {
-                        if !transpile_return.parser_errors.is_empty() {
-                            return None;
+                            let Ok(formated_output) = format_js(output) else {
+                                if !transpile_return.parser_errors.is_empty() {
+                                    return None;
+                                }
+                                return Some(Failure {
+                                    path: path.to_owned(),
+                                    input: tsc_output.ts.clone(),
+                                    kind: FailureKind::OutputInvalidSyntax(output.to_string()),
+                                });
+                            };
+
+                            if formated_output != expected_output {
+                                return Some(Failure {
+                                    path: path.to_owned(),
+                                    input: tsc_output.ts,
+                                    kind: FailureKind::UnmatchedOutput {
+                                        expected: expected_output,
+                                        actual: formated_output,
+                                    },
+                                });
+                            }
                         }
-                        return Some(Failure {
-                            path: path.to_owned(),
-                            input: process_result.ts.clone(),
-                            kind: FailureKind::OutputInvalidSyntax(output.to_string()),
-                        });
-                    };
-
-                    if formated_output != expected_output {
-                        return Some(Failure {
-                            path: path.to_owned(),
-                            input: process_result.ts,
-                            kind: FailureKind::UnmatchedOutput {
-                                expected: expected_output,
-                                actual: formated_output,
-                            },
-                        });
+                        TestType::Exec => {
+                            assert!(!transpile_return.parser_panicked);
+                        },
                     }
                     let source_line_term_starts =
-                        line_terminator_start_iter(process_result.ts.as_bytes())
+                        line_terminator_start_iter(tsc_output.ts.as_bytes())
                             .collect::<Vec<usize>>();
                     let output_line_term_starts =
                         line_terminator_start_iter(output.as_bytes()).collect::<Vec<usize>>();
                     if output_line_term_starts.len() != source_line_term_starts.len() {
                         return Some(Failure {
                             path: path.to_owned(),
-                            input: process_result.ts,
+                            input: tsc_output.ts,
                             kind: FailureKind::LineTerminatorCountMisMatch {
                                 source_line_term_starts,
                                 output_line_term_starts,

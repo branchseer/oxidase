@@ -24,7 +24,6 @@ swc = { workspace = true }
 swc_ecma_visit = { workspace = true }
 swc_ecma_transforms = { workspace = true }
 swc_ecma_utils = { workspace = true, features = ["stacker"] }
-# biome_js_formatter = "0.5.7"
-# biome_js_parser = "0.5.7"
-# biome_js_syntax = "0.5.7"
-# dprint-plugin-biome = { git = "https://github.com/dprint/dprint-plugin-biome", branch = "main" }
+v8 = { workspace = true }
+serde_v8 = { workspace = true }
+serde_json = { workspace = true }
