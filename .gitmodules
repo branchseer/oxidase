@@ -12,3 +12,6 @@
 [submodule "crates/e2e/fixture/ecosystem/ts-blank-space"]
 	path = crates/e2e/fixture/ecosystem/ts-blank-space
 	url = https://github.com/bloomberg/ts-blank-space
+[submodule "crates/e2e/fixture/ecosystem/pnpm"]
+	path = crates/e2e/fixture/ecosystem/pnpm
+	url = https://github.com/pnpm/pnpm

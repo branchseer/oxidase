@@ -11,16 +11,16 @@ export enum Merge {
 
 export enum Merge {
     B = A + 2,
-    C = (() => {
-        enum Merge {
-            B = typeof A
-        }
-        return Merge.B
-    })();
+    // C = (() => {
+    //     enum Merge {
+    //         B = typeof A
+    //     }
+    //     return Merge.B
+    // })()
 }
 
 export enum Merge {
-    C = typeof B
+    D = A + B
 }
 
 export enum Identifiers {
@@ -32,4 +32,25 @@ export enum Identifiers {
 export enum Identifier\u0073 {
     A = validIdentifier + 10,
     B = validIdentifierWithEscapes + 11
+}
+
+export enum NameShadowing {
+    NameShadowing,
+    A = NameShadowing + 3
+}
+
+export enum NameShadowing {
+    B = NameShadowing + 4
+}
+
+export declare enum ExportDeclare {
+    A
+}
+
+export declare const enum ExportDeclareConst {
+    A
+}
+
+export const enum ExportConst {
+    A
 }

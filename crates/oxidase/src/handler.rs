@@ -62,6 +62,13 @@ enum StatementStripKind {
 }
 
 #[derive(Debug)]
+struct CurrentEnumDeclaration<'alloc> {
+    enum_name: &'alloc str,
+    index_of_patch_before_enum_name: usize,
+    is_secondary: bool,
+}
+
+#[derive(Debug)]
 struct Scope<'alloc> {
     last_statement: Option<LastStatement>,
     kind: ScopeKind<'alloc>,
@@ -71,7 +78,7 @@ struct Scope<'alloc> {
         DefaultHashBuilder,
         &'alloc Bump,
     >,
-    last_enum_name: Option<&'alloc str>,
+    current_enum_decl: Option<CurrentEnumDeclaration<'alloc>>,
 }
 
 #[derive(Debug)]
@@ -268,7 +275,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         self.scope_stack.push(Scope {
             last_statement: None,
             kind,
-            last_enum_name: None,
+            current_enum_decl: None,
             member_identifiers_by_enum_names: HashMap::new_in(&self.allocator),
         });
     }
@@ -327,7 +334,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             }
             ScopeKind::Enum { member_names } => {
                 let scope = self.scope_stack.last_mut().unwrap();
-                let enum_name = scope.last_enum_name.unwrap();
+                let enum_name = scope.current_enum_decl.as_ref().unwrap().enum_name;
                 let member_identifiers = scope
                     .member_identifiers_by_enum_names
                     .entry(enum_name)
@@ -375,17 +382,28 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     #[inline]
     fn handle_export_named_declaration(&mut self, decl: &ExportNamedDeclaration<'ast, A>) {
         if decl.export_kind.is_type() {
-            self.patches.push(decl.span);
+            self.patches.push_merging_tail(decl.span);
             return;
         }
         let Some(exported_decl) = &decl.declaration else {
             return;
         };
-        let Some(last_patch) = self.patches.last() else {
-            return;
-        };
-        if last_patch.span == exported_decl.span() {
-            self.patches.push_merging_tail(decl.span());
+        if matches!(self.patches.last(), Some(last_patch) if last_patch.replacement.is_empty() && last_patch.span == exported_decl.span())
+        {
+            self.patches.push_merging_tail(decl.span);
+        } else if matches!(exported_decl, Declaration::TSEnumDeclaration(_)) {
+            let current_enum_decl = self
+                .scope_stack
+                .last()
+                .unwrap()
+                .current_enum_decl
+                .as_ref()
+                .unwrap();
+            if current_enum_decl.is_secondary {
+                self.patches[current_enum_decl.index_of_patch_before_enum_name]
+                    .span
+                    .start = decl.span.start;
+            }
         }
     }
     #[inline]
@@ -426,30 +444,45 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     fn handle_ts_enum_head(&mut self, enum_head: &TSEnumHead<'ast>) {
         let cur_scope = self.scope_stack.last_mut().unwrap();
         let enum_name = enum_head.id.name.as_str();
-        cur_scope.last_enum_name = Some(self.allocator.alloc_str(enum_name));
+        let existing_member_identifiers = cur_scope.member_identifiers_by_enum_names.get(enum_name);
+        let is_secondary = existing_member_identifiers.is_some();
+
+        cur_scope.current_enum_decl = Some(CurrentEnumDeclaration {
+            enum_name: self.allocator.alloc_str(enum_name),
+            index_of_patch_before_enum_name: self.patches.len(),
+            is_secondary,
+        });
 
         // `(const) enum A {` -> `var A;(function(A,{Foo,Bar}) {{`
 
         // There could be line terminators between `const` and `enum`
         self.patches.push_checking_line_terminator(Patch {
             span: (enum_head.span.start..enum_head.id.span.start).into(),
-            replacement: format!(in &self.allocator, "var {};(function(", enum_name)
-                .into_bump_str(),
+            replacement: if !is_secondary {
+                format!(in &self.allocator, "var {};(function(", enum_name).into_bump_str()
+            } else {
+                "(function("
+            },
         });
 
         self.patches.push(Patch {
             span: (enum_head.id.span.end..enum_head.id.span.end).into(),
             replacement: {
-                let mut replacement = String::from_str_in(",{", &self.allocator);
-                if let Some(member_identifiers) =
-                    cur_scope.member_identifiers_by_enum_names.get(enum_name)
-                {
-                    for member_id in member_identifiers {
-                        replacement.push_str(*member_id);
-                        replacement.push(',');
+                let mut replacement = String::from_str_in("){", &self.allocator);
+                if let Some(existing_member_identifiers) = existing_member_identifiers {
+                    if !existing_member_identifiers.is_empty() {
+                        replacement.push_str("var {");
+                        for (index, member_id) in existing_member_identifiers.iter().enumerate() {
+                            replacement.push_str(*member_id);
+                            if index < existing_member_identifiers.len() - 1 {
+                                replacement.push(',');
+                            }
+                        }
+                        replacement.push_str("}=");
+                        replacement.push_str(enum_name);
+                        replacement.push(';');
                     }
                 }
-                replacement.push_str("}){");
                 replacement.into_bump_str()
             },
         });
@@ -571,7 +604,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
 
         self.patches.push(Patch {
             span: (enum_decl.span.end..enum_decl.span.end).into(),
-            replacement: format!(in &self.allocator, "}}).call({0}||({0}={{}}),{0},{0})", id)
+            replacement: format!(in &self.allocator, "}}).call({0}||({0}={{}}),{0});", id)
                 .into_bump_str(),
         });
     }
@@ -642,10 +675,12 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     fn handle_statement(&mut self, stmt: &Statement<'ast, A>) {
         let stmt_span = stmt.span();
         self.statement_asi(stmt_span);
+        let scope = self.scope_stack.last_mut().unwrap();
+        scope.current_enum_decl = None;
         if let ScopeKind::FunctionWithParamProps {
             prologue_scan_state,
             ..
-        } = &mut self.scope_stack.last_mut().unwrap().kind
+        } = &mut scope.kind
         {
             match prologue_scan_state {
                 PrologueScanState::Init => {
@@ -1092,7 +1127,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
 
     #[inline]
     fn handle_formal_parameter(&mut self, param: &FormalParameter<'ast, A>) {
-        if param.modifiers.is_none() {
+        let Some(modifiers) = &param.modifiers else {
+            return;
+        };
+        if !(modifiers.r#override || modifiers.readonly || modifiers.accessibility.is_some()) {
             return;
         }
         let param_id_span = match &param.pattern.kind {

@@ -2,3 +2,6 @@ ecosystem/TypeScript/tests/cases/compiler
 ecosystem/TypeScript/src/compiler
 ecosystem/swc/crates/swc_fast_ts_strip/tests/fixture
 ecosystem/ts-blank-space/tests/fixture
+ecosystem/zod
+ecosystem/pnpm
+

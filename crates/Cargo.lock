@@ -1717,6 +1717,7 @@ dependencies = [
  "anyhow",
  "csv",
  "dashmap 6.1.0",
+ "derive_more",
  "ignore",
  "oxidase",
  "oxidase_tsc",
@@ -1733,6 +1734,7 @@ dependencies = [
  "swc_ecma_transforms",
  "swc_ecma_utils",
  "swc_ecma_visit",
+ "thiserror",
  "thread_local",
  "v8",
 ]

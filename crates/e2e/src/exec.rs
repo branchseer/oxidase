@@ -2,22 +2,27 @@ use std::{cell::RefCell, ops::Deref};
 
 use v8::{Local, ScriptOrigin};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum EvalError {
+    #[error("failed to evaluate the module source: {message} (line {line}, column {column})")]
     ModuleEvaluationError {
         message: String,
         line: usize,
         column: usize,
     },
-    InvalidJson(serde_v8::Error)
+    #[error("exported items aren't valid jsons: {0:?}")]
+    InvalidJson(serde_v8::Error),
 }
 
 impl EvalError {
-    fn from_evaluation_exception(scope: &mut v8::HandleScope, exception: v8::Local<'_, v8::Value>) -> Self {
+    fn from_evaluation_exception(
+        scope: &mut v8::HandleScope,
+        exception: v8::Local<'_, v8::Value>,
+    ) -> Self {
         let exception_message = v8::Exception::create_message(scope, exception);
         EvalError::ModuleEvaluationError {
             message: exception_message.get(scope).to_rust_string_lossy(scope),
-            line: exception_message.get_line_number(scope).unwrap(),
+            line: exception_message.get_line_number(scope).unwrap_or(0),
             column: exception_message.get_start_column(),
         }
     }
@@ -45,34 +50,30 @@ pub fn eval(src: &str) -> Result<serde_json::Value, EvalError> {
 
         let evaluated_module = || -> Option<Local<'_, v8::Module>> {
             let module = v8::script_compiler::compile_module(scope, &mut source)?;
-            module.instantiate_module(scope, module_resolve_callback)?;
+            module.instantiate_module(scope, |_, _, _, _| None)?;
             module.evaluate(scope)?;
             Some(module)
         }()
         .ok_or_else(|| {
-            let exception = scope.exception().unwrap();
-            EvalError::from_evaluation_exception(scope, exception)
+            if let Some(exception) = scope.exception() {
+                EvalError::from_evaluation_exception(scope, exception)
+            } else {
+                EvalError::ModuleEvaluationError { message: "Unknown error".to_owned(), line: 0, column: 0 }
+            }
         })?;
 
         if evaluated_module.get_status() != v8::ModuleStatus::Evaluated {
             let exception = evaluated_module.get_exception();
-            return Err(EvalError::from_evaluation_exception(scope, exception))
+            return Err(EvalError::from_evaluation_exception(scope, exception));
         }
 
         let module_namespace = evaluated_module.get_module_namespace();
-        dbg!(v8::json::stringify(scope, module_namespace));
-        let json = serde_v8::from_v8::<serde_json::Value>(scope, module_namespace).map_err(|err| EvalError::InvalidJson(err))?;
+
+        // TODO: check invalid values such as functions. They're currently converted to empty objects.
+        let json = serde_v8::from_v8::<serde_json::Value>(scope, module_namespace)
+            .map_err(|err| EvalError::InvalidJson(err))?;
         Ok(json)
     })
-}
-
-fn module_resolve_callback<'a>(
-    _context: v8::Local<'a, v8::Context>,
-    _specifier: v8::Local<'a, v8::String>,
-    _import_assertions: v8::Local<'a, v8::FixedArray>,
-    _referrer: v8::Local<'a, v8::Module>,
-) -> Option<v8::Local<'a, v8::Module>> {
-    None
 }
 
 #[cfg(test)]
@@ -93,6 +94,27 @@ mod tests {
     #[test]
     fn basic() {
         ensure_v8_init();
-        dbg!(eval("export const z = {  b: 2, c() {} }"));
+        let json = eval("export const a = {  b: 2 }; export const x = [null, ''];").unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "a": { "b": 2}, "x": [null, ""]  })
+        )
+    }
+
+    #[test]
+    fn syntax_error() {
+        ensure_v8_init();
+        assert!(matches!(
+            eval("!"),
+            Err(EvalError::ModuleEvaluationError { .. })
+        ));
+    }
+    #[test]
+    fn runtime_error() {
+        ensure_v8_init();
+        assert!(matches!(
+            eval("throw new Error()"),
+            Err(EvalError::ModuleEvaluationError { .. })
+        ));
     }
 }

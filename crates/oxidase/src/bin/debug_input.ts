@@ -1,21 +1,7 @@
- const enum A {
-    "B\nC",
-    B\u0061,
-    "AB" = 3,
-    A\u597D
+export enum A {
+    X
 }
 
- const enum A {
-    X = () => {
-        enum A {
-            Y = AB
-        }
-        enum A {
-            B = AB
-        }
-    }
-}
-
-enum A {
-
+export enum A {
+    Y = X * 2
 }

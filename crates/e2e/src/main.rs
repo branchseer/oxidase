@@ -1,6 +1,6 @@
 mod cache;
-mod format;
 mod exec;
+mod format;
 
 use std::{
     any::Any,
@@ -18,6 +18,8 @@ use std::{
 };
 
 use cache::BaselineCache;
+use derive_more::From;
+use exec::{eval, EvalError};
 use format::format_js;
 use ignore::{DirEntry, WalkBuilder};
 use oxidase::{
@@ -34,6 +36,7 @@ pub struct Failure {
     pub kind: FailureKind,
 }
 
+#[derive(From)]
 pub enum FailureKind {
     OutputInvalidSyntax(String),
     UnmatchedOutput {
@@ -44,6 +47,13 @@ pub enum FailureKind {
     LineTerminatorCountMisMatch {
         source_line_term_starts: Vec<usize>,
         output_line_term_starts: Vec<usize>,
+    },
+    #[from]
+    ExecEvalError(EvalError),
+
+    ExecOutputNotEqual {
+        expected: serde_json::Value,
+        actual: serde_json::Value,
     },
 }
 
@@ -87,6 +97,11 @@ impl Display for Failure {
                     output_line_term_starts,
                 ))?;
             }
+            FailureKind::ExecEvalError(eval_error) => Display::fmt(eval_error, f)?,
+            FailureKind::ExecOutputNotEqual { expected, actual } => {
+                f.write_str("ExecOutputNotEqual\n")?;
+                pretty_assertions::Comparison::new(expected, actual).fmt(f)?;
+            },
         }
         f.write_str("\n")?;
         Ok(())
@@ -127,6 +142,7 @@ pub struct FileEntry {
     pub mtime: SystemTime,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum TestType {
     Transpile,
     Exec,
@@ -200,13 +216,12 @@ fn main() {
     let failures: Vec<Failure> = entries
         .par_iter()
         .flat_map(|file_entry| -> Option<Failure> {
-            let ret = TSC.with_borrow_mut(|tsc| {
+            let res = TSC.with_borrow_mut(|tsc| -> Result<(), Failure> {
                 let Ok(source) = read_to_string(&file_entry.full_path) else {
-                    return None;
+                    return Ok(());
                 };
 
                 let path = file_entry.full_path.strip_prefix(FIXTURE_PATH).unwrap();
-
                 let test_type = if Path::new(path).starts_with("exec") {
                     TestType::Exec
                 } else {
@@ -224,7 +239,7 @@ fn main() {
                         tsc.process_ts(&source, strip_enum_and_namespace)
                     })
                 else {
-                    return None;
+                    return Ok(());
                 };
 
                 let source_type = match tsc_output.kind {
@@ -232,84 +247,89 @@ fn main() {
                     SourceKind::Script => SourceType::ts().with_module(false),
                 };
 
-                let Ok(Ok(expected_output)) = catch_unwind(|| format_js(&tsc_output.js)) else {
-                    // The tsc output can't be formatted by swc.
-                    return None;
+                let input = match test_type {
+                    TestType::Exec => source,
+                    TestType::Transpile => tsc_output.ts,
                 };
 
-                ALLOCATOR.with_borrow_mut(|allocator| {
-                    let allocator = allocator.get_or_insert_with(|| Allocator::default());
-                    allocator.reset();
-                    let mut output = tsc_output.ts.clone();
+                ALLOCATOR
+                    .with_borrow_mut(|allocator| -> Result<(), FailureKind> {
+                        let allocator = allocator.get_or_insert_with(|| Allocator::default());
+                        allocator.reset();
 
-                    let transpile_return = match catch_unwind(AssertUnwindSafe(|| {
-                        oxidase::transpile(allocator, source_type, &mut output)
-                    })) {
-                        Ok(ok) => ok,
-                        Err(panic_err) => {
-                            return Some(Failure {
-                                path: path.to_owned(),
-                                input: tsc_output.ts,
-                                kind: FailureKind::Panicked(panic_err),
-                            });
-                        }
-                    };
-                    match test_type {
-                        TestType::Transpile => {
-                            if transpile_return.parser_panicked {
-                                // Ignore oxc parser error. it should be covered by oxc_parser's conformance tests
-                                return None;
+                        let mut output = input.clone();
+                        let transpile_return = match catch_unwind(AssertUnwindSafe(|| {
+                            oxidase::transpile(allocator, source_type, &mut output)
+                        })) {
+                            Ok(ok) => ok,
+                            Err(panic_err) => {
+                                return Err(FailureKind::Panicked(panic_err));
                             }
-
-                            let output = output.as_str();
-
-                            let Ok(formated_output) = format_js(output) else {
-                                if !transpile_return.parser_errors.is_empty() {
-                                    return None;
+                        };
+                        match test_type {
+                            TestType::Transpile => {
+                                let Ok(Ok(expected_output)) =
+                                    catch_unwind(|| format_js(&tsc_output.js))
+                                else {
+                                    // The tsc output can't be formatted by swc.
+                                    return Ok(());
+                                };
+                                if transpile_return.parser_panicked {
+                                    // Ignore oxc parser error. it should be covered by oxc_parser's conformance tests
+                                    return Ok(());
                                 }
-                                return Some(Failure {
-                                    path: path.to_owned(),
-                                    input: tsc_output.ts.clone(),
-                                    kind: FailureKind::OutputInvalidSyntax(output.to_string()),
-                                });
-                            };
 
-                            if formated_output != expected_output {
-                                return Some(Failure {
-                                    path: path.to_owned(),
-                                    input: tsc_output.ts,
-                                    kind: FailureKind::UnmatchedOutput {
+                                let output = output.as_str();
+
+                                let Ok(formated_output) = format_js(output) else {
+                                    if !transpile_return.parser_errors.is_empty() {
+                                        return Ok(());
+                                    }
+                                    return Err(FailureKind::OutputInvalidSyntax(
+                                        output.to_string(),
+                                    ));
+                                };
+
+                                if formated_output != expected_output {
+                                    return Err(FailureKind::UnmatchedOutput {
                                         expected: expected_output,
                                         actual: formated_output,
-                                    },
-                                });
+                                    });
+                                }
+                            }
+                            TestType::Exec => {
+                                assert!(!transpile_return.parser_panicked);
+                                let expected_exports = eval(&tsc_output.js)?;
+                                let actual_exports = eval(&output)?;
+                                if expected_exports != actual_exports {
+                                    return Err(FailureKind::ExecOutputNotEqual {
+                                        expected: expected_exports,
+                                        actual: actual_exports,
+                                    });
+                                }
                             }
                         }
-                        TestType::Exec => {
-                            assert!(!transpile_return.parser_panicked);
-                        },
-                    }
-                    let source_line_term_starts =
-                        line_terminator_start_iter(tsc_output.ts.as_bytes())
-                            .collect::<Vec<usize>>();
-                    let output_line_term_starts =
-                        line_terminator_start_iter(output.as_bytes()).collect::<Vec<usize>>();
-                    if output_line_term_starts.len() != source_line_term_starts.len() {
-                        return Some(Failure {
-                            path: path.to_owned(),
-                            input: tsc_output.ts,
-                            kind: FailureKind::LineTerminatorCountMisMatch {
+                        let source_line_term_starts =
+                            line_terminator_start_iter(input.as_bytes()).collect::<Vec<usize>>();
+                        let output_line_term_starts =
+                            line_terminator_start_iter(output.as_bytes()).collect::<Vec<usize>>();
+                        if output_line_term_starts.len() != source_line_term_starts.len() {
+                            return Err(FailureKind::LineTerminatorCountMisMatch {
                                 source_line_term_starts,
                                 output_line_term_starts,
-                            },
-                        });
-                    }
-                    // let formated_output =
-                    None
-                })
+                            });
+                        }
+                        // let formated_output =
+                        Ok(())
+                    })
+                    .map_err(|failure_kind| Failure {
+                        path: path.to_owned(),
+                        input,
+                        kind: failure_kind,
+                    })
             });
             finished_cnt.fetch_add(1, Ordering::Relaxed);
-            ret
+            res.err()
         })
         .map(|failure| {
             println!("{}", &failure);

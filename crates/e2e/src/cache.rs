@@ -65,7 +65,7 @@ impl BaselineCache {
         }
         let output = f();
         self.entries.insert(path.to_owned(), if let Some(output) = &output {
-            let id = self.max_id.fetch_add(1, Ordering::Relaxed);
+            let id = self.max_id.fetch_add(1, Ordering::Relaxed) + 1;
             fs::write(self.js_path(id), &output.js).unwrap();
             fs::write(self.ts_path(id), &output.ts).unwrap();
             CacheEntry { id, mtime, source_kind: Some(output.kind) }
