@@ -48,6 +48,8 @@ pub fn format_js(source: impl Into<String>) -> anyhow::Result<String> {
             decorators: true,
             import_attributes: true,
             allow_return_outside_function: true,
+            decorators_before_export: true,
+            auto_accessors: true,
             ..Default::default()
         }),
         EsVersion::latest(),

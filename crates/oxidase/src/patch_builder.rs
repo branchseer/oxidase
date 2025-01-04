@@ -71,10 +71,8 @@ impl<'source, 'alloc> PatchBuilder<'source, 'alloc> {
 
     pub fn binary_search_insert(&mut self, patch: impl Into<Patch<'alloc>>) {
         let patch = patch.into();
-        let mut insert_pos = self.patches.len();
-        while insert_pos > 0 && self.patches[insert_pos - 1].span.end > patch.span.start {
-            insert_pos -= 1
-        }
+        let insert_pos = self.patches.partition_point(|p| p.span.end <= patch.span.start);
+
         if cfg!(debug_assertions) {
             if let Some(patch_after) = self.patches.get(insert_pos) {
                 assert!(patch.span.end <= patch_after.span.start);
@@ -82,6 +80,7 @@ impl<'source, 'alloc> PatchBuilder<'source, 'alloc> {
         }
         self.patches.insert(insert_pos, patch);
     }
+
     // pub fn patches(&self) -> &[Patch<'alloc>] {
     //     &self.patches
     // }

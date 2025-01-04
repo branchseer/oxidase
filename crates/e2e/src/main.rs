@@ -7,6 +7,7 @@ use std::{
     cell::RefCell,
     fmt::{Debug, Display, Write},
     fs::read_to_string,
+    io,
     os::unix::fs::MetadataExt,
     panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
@@ -23,7 +24,8 @@ use exec::{eval, EvalError};
 use format::format_js;
 use ignore::{DirEntry, WalkBuilder};
 use oxidase::{
-    line_term::line_terminator_start_iter, Allocator, SourceType, String as AllocatorString,
+    line_term::line_terminator_start_iter, Allocator, OxcDiagnostic, SourceType,
+    String as AllocatorString,
 };
 use oxidase_tsc::{SourceKind, Tsc};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -38,12 +40,18 @@ pub struct Failure {
 
 #[derive(From)]
 pub enum FailureKind {
+    IoError(io::Error),
     OutputInvalidSyntax(String),
+    TscInvalidSyntax,
+    FormatTscOutputError(anyhow::Error),
+    ParserPanicked(Vec<OxcDiagnostic>),
+    Panicked(Box<dyn Any + Send>),
+    InputInvalidSyntax(String),
     UnmatchedOutput {
         expected: String,
         actual: String,
     },
-    Panicked(Box<dyn Any + Send>),
+    FormatTscOutputPanicked(Box<dyn Any + Send>),
     LineTerminatorCountMisMatch {
         source_line_term_starts: Vec<usize>,
         output_line_term_starts: Vec<usize>,
@@ -57,6 +65,16 @@ pub enum FailureKind {
     },
 }
 
+fn get_panic_message(panic_err: &dyn Any) -> String {
+    if let Some(message) = panic_err.downcast_ref::<&'static str>() {
+        String::from(*message)
+    } else if let Some(message) = panic_err.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        String::from("unknown message")
+    }
+}
+
 impl Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("## {}\n", self.path))?;
@@ -65,18 +83,18 @@ impl Display for Failure {
                 f.write_str("output_invalid_syntax\n\n")?;
                 f.write_str(&output)?;
             }
+            FailureKind::InputInvalidSyntax(input) => {
+                f.write_str("input_invalid_syntax\n\n")?;
+                f.write_str(&input)?;
+            }
+            FailureKind::TscInvalidSyntax => {
+                f.write_str("tsc_invalid_syntax\n\n")?;
+            }
             FailureKind::UnmatchedOutput { expected, actual } => {
                 SimpleDiff::from_str(expected, actual, "expected", "actual").fmt(f)?;
             }
             FailureKind::Panicked(panic_err) => {
-                let panic_message = if let Some(message) = panic_err.downcast_ref::<&'static str>()
-                {
-                    *message
-                } else if let Some(message) = panic_err.downcast_ref::<String>() {
-                    message.as_str()
-                } else {
-                    "unknown message"
-                };
+                let panic_message = get_panic_message(panic_err.as_ref());
                 f.write_fmt(format_args!("Transpiler panicked: {}", panic_message))?;
             }
             FailureKind::LineTerminatorCountMisMatch {
@@ -101,7 +119,23 @@ impl Display for Failure {
             FailureKind::ExecOutputNotEqual { expected, actual } => {
                 f.write_str("ExecOutputNotEqual\n")?;
                 pretty_assertions::Comparison::new(expected, actual).fmt(f)?;
-            },
+            }
+            FailureKind::IoError(error) => {
+                f.write_str("io error\n")?;
+                Debug::fmt(error, f)?;
+            }
+            FailureKind::FormatTscOutputError(error) => {
+                f.write_str("FormatTscOutputError\n")?;
+                Debug::fmt(error, f)?;
+            }
+            FailureKind::FormatTscOutputPanicked(panic_err) => {
+                f.write_str("FormatTscOutputError\n")?;
+                f.write_str(&get_panic_message(panic_err.as_ref()))?;
+            }
+            FailureKind::ParserPanicked(diagnostics) => {
+                f.write_str("ParserPanicked\n")?;
+                Debug::fmt(&diagnostics, f)?;
+            }
         }
         f.write_str("\n")?;
         Ok(())
@@ -154,13 +188,19 @@ fn main() {
     v8::V8::initialize();
 
     let transpile_fixture_dirs =
-        read_to_string(Path::new(FIXTURE_PATH).join("transpile_list.txt")).unwrap();
+        read_to_string(Path::new(FIXTURE_PATH).join("ecosystem_transpile_paths.txt")).unwrap();
+    let mut paths_allowing_invalid_ts: Vec<&str> = vec![];
     let transpile_fixture_dirs = transpile_fixture_dirs.lines().flat_map(|line| {
         let line = line.trim();
-        if line.is_empty() {
+        if line.is_empty() || line.starts_with('#') {
             None
         } else {
-            Some(line)
+            Some(if let Some(line) = line.strip_prefix('?') {
+                paths_allowing_invalid_ts.push(line);
+                line
+            } else {
+                line
+            })
         }
     });
 
@@ -186,6 +226,11 @@ fn main() {
     }
     collect_entries(
         Path::new(FIXTURE_PATH).join("exec"),
+        filter_map,
+        &mut entries,
+    );
+    collect_entries(
+        Path::new(FIXTURE_PATH).join("transpile"),
         filter_map,
         &mut entries,
     );
@@ -217,11 +262,28 @@ fn main() {
         .par_iter()
         .flat_map(|file_entry| -> Option<Failure> {
             let res = TSC.with_borrow_mut(|tsc| -> Result<(), Failure> {
-                let Ok(source) = read_to_string(&file_entry.full_path) else {
-                    return Ok(());
+                let path = file_entry.full_path.strip_prefix(FIXTURE_PATH).unwrap();
+                let allows_invalid_js = || {
+                    paths_allowing_invalid_ts
+                        .iter()
+                        .any(|prefix| Path::new(path).starts_with(prefix))
                 };
 
-                let path = file_entry.full_path.strip_prefix(FIXTURE_PATH).unwrap();
+                let source = match read_to_string(&file_entry.full_path) {
+                    Ok(ok) => ok,
+                    Err(io_error) => {
+                        return if allows_invalid_js() {
+                            Ok(())
+                        } else {
+                            Err(Failure {
+                                path: path.to_owned(),
+                                input: String::new(),
+                                kind: FailureKind::IoError(io_error),
+                            })
+                        }
+                    }
+                };
+
                 let test_type = if Path::new(path).starts_with("exec") {
                     TestType::Exec
                 } else {
@@ -230,16 +292,23 @@ fn main() {
 
                 let tsc = tsc.get_or_insert_with(|| Tsc::new());
 
-                let Some(tsc_output) =
-                    baseline_cache.get_or_insert_with(path, file_entry.mtime, || {
-                        let strip_enum_and_namespace = match test_type {
-                            TestType::Exec => false,
-                            TestType::Transpile => true,
-                        };
-                        tsc.process_ts(&source, strip_enum_and_namespace)
-                    })
-                else {
-                    return Ok(());
+                let Some(tsc_output) = (match test_type {
+                    TestType::Exec => tsc.process_ts(&source, false),
+                    TestType::Transpile => {
+                        baseline_cache.get_or_insert_with(path, file_entry.mtime, || {
+                            tsc.process_ts(&source, true)
+                        })
+                    }
+                }) else {
+                    return if allows_invalid_js() {
+                        Ok(())
+                    } else {
+                        Err(Failure {
+                            path: path.to_owned(),
+                            input: source.clone(),
+                            kind: FailureKind::TscInvalidSyntax,
+                        })
+                    };
                 };
 
                 let source_type = match tsc_output.kind {
@@ -248,8 +317,10 @@ fn main() {
                 };
 
                 let input = match test_type {
-                    TestType::Exec => source,
-                    TestType::Transpile => tsc_output.ts,
+                    TestType::Transpile if Path::new(path).starts_with("ecosystem") => {
+                        tsc_output.ts
+                    }
+                    _ => source,
                 };
 
                 ALLOCATOR
@@ -268,21 +339,39 @@ fn main() {
                         };
                         match test_type {
                             TestType::Transpile => {
-                                let Ok(Ok(expected_output)) =
-                                    catch_unwind(|| format_js(&tsc_output.js))
-                                else {
-                                    // The tsc output can't be formatted by swc.
-                                    return Ok(());
+                                let expected_output = match catch_unwind(|| {
+                                    format_js(&tsc_output.js)
+                                }) {
+                                    Ok(Ok(ok)) => ok,
+                                    Err(panic_error) => {
+                                        return if allows_invalid_js() {
+                                            Ok(())
+                                        } else {
+                                            Err(FailureKind::FormatTscOutputPanicked(panic_error))
+                                        }
+                                    }
+                                    Ok(Err(swc_error)) => {
+                                        return if allows_invalid_js() {
+                                            Ok(())
+                                        } else {
+                                            Err(FailureKind::FormatTscOutputError(swc_error))
+                                        }
+                                    }
                                 };
                                 if transpile_return.parser_panicked {
-                                    // Ignore oxc parser error. it should be covered by oxc_parser's conformance tests
-                                    return Ok(());
+                                    return if allows_invalid_js() {
+                                        Ok(())
+                                    } else {
+                                        Err(FailureKind::ParserPanicked(
+                                            transpile_return.parser_errors,
+                                        ))
+                                    };
                                 }
 
                                 let output = output.as_str();
 
                                 let Ok(formated_output) = format_js(output) else {
-                                    if !transpile_return.parser_errors.is_empty() {
+                                    if allows_invalid_js() {
                                         return Ok(());
                                     }
                                     return Err(FailureKind::OutputInvalidSyntax(

@@ -12,7 +12,6 @@ export namespace A {
 
     // export @D class Decorated2 { }
 
-
     const X = { a: 1, b: 2, c: 3, d: 4, e: 5, f: { g: 6 }, h: 7 };
     var e;
     export const { a, b: c, d = ({ e } = X), f: { g }, ...h } = X
@@ -23,7 +22,12 @@ export namespace A {
         return A;
     }) } = {}
 
-    export declare const Declared = 'declared';
+    export function Overloaded(): void;
+    export function Overloaded(b?: string): void {}
+
+    export declare function DeclaredFunction()
+    export declare class DeclaredClass { }
+    export declare const DeclaredVariable = 'declared';
     export interface Interface { }
 
     namespace Unexported {

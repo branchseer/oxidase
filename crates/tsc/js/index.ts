@@ -10,6 +10,8 @@ const compilerOptions: ts.CompilerOptions = {
 	removeComments: true,
 	noCheck: true,
 	noEmit: true,
+	noResolve: true,
+	isolatedModules: true,
 };
 
 export function processTs(
@@ -20,7 +22,7 @@ export function processTs(
 	js: string;
 	kind: "module" | "script";
 } | null {
-	sourceCode = sourceCode.replaceAll("/*!", "/*");
+	sourceCode = sourceCode.replaceAll("/*!", "/*").replaceAll('/// <reference', '//');
 	const project = createProjectSync({ useInMemoryFileSystem: true });
 	const sourceFile = project.createSourceFile(
 		TS_SOURCE_FILENAME,
@@ -39,6 +41,7 @@ export function processTs(
 		return null;
 	}
 
+	let isJsChanged = false;
 	const printer = ts.createPrinter({
 		removeComments: true,
 	}, {
@@ -49,6 +52,7 @@ export function processTs(
 			// - tsc generates body for them
 			// - oxidase strips them (TODO: to be consistent with tsc)
 			if (ts.isAccessor(node) && (node.body === undefined)) {
+				isJsChanged = true;
 				return ts.factory.createNotEmittedStatement(node);
 			}
 			// `export import foo = require('foo')`
@@ -60,6 +64,7 @@ export function processTs(
 					modifier.kind === ts.SyntaxKind.ExportKeyword
 				) && ts.isExternalModuleReference(node.moduleReference)
 			) {
+				isJsChanged = true;
 				return ts.factory.createNotEmittedStatement(node);
 			}
 
@@ -69,6 +74,7 @@ export function processTs(
 				// Preseve declare enum/namespace
 				(ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Ambient) === 0
 			)) {
+				isJsChanged = true;
 				return ts.factory.createNotEmittedStatement(node);
 			}
 			return node;
@@ -83,7 +89,7 @@ export function processTs(
 	const { outputText } = ts.transpileModule(transformedCode, { compilerOptions });
 
 	return {
-		ts: transformedCode,
+		ts: isJsChanged ? transformedCode : sourceCode,
 		js: outputText,
 		kind: ts.isExternalModule(sourceFile) ? "module" : "script",
 	};

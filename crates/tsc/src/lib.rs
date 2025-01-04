@@ -91,6 +91,7 @@ mod tests {
         });
     }
 
+
     #[test]
     fn invalid_syntax() {
         ensure_v8_init();

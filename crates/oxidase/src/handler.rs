@@ -69,6 +69,12 @@ struct CurrentEnumDeclaration<'alloc> {
 }
 
 #[derive(Debug)]
+struct CurrentNamespaceDeclaration<'alloc> {
+    namespace_name: &'alloc str,
+    index_of_patch_before_namespace_name: usize,
+}
+
+#[derive(Debug)]
 struct Scope<'alloc> {
     last_statement: Option<LastStatement>,
     kind: ScopeKind<'alloc>,
@@ -79,13 +85,7 @@ struct Scope<'alloc> {
         &'alloc Bump,
     >,
     current_enum_decl: Option<CurrentEnumDeclaration<'alloc>>,
-}
-
-#[derive(Debug)]
-enum SuperCallFindingState {
-    NotFound,
-    ExpressionFound(Span),
-    StatementFound { patch_index_after_stmt: usize },
+    current_namespace_decl: Option<CurrentNamespaceDeclaration<'alloc>>,
 }
 
 #[derive(Debug)]
@@ -105,6 +105,10 @@ enum ScopeKind<'alloc> {
     },
     Enum {
         member_names: Vec<'alloc, EnumName<'alloc>>,
+    },
+    Namespace {
+        current_stmt_binding_identifiers: Vec<'alloc, &'alloc str>,
+        exported_identifiers: Vec<'alloc, &'alloc str>,
     },
 }
 
@@ -217,7 +221,7 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         let mut current_stmt_patch: Option<StatementPatch> = None;
         if let Some(last_patch) = self.patches.last() {
             let index = self.patches.len() - 1;
-            if last_patch.span.end == span.end {
+            if last_patch.replacement.is_empty() && last_patch.span.end == span.end {
                 if last_patch.span.start == span.start {
                     current_stmt_patch = Some(StatementPatch {
                         index,
@@ -270,6 +274,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             ScopeType::TSEnumDeclaration => ScopeKind::Enum {
                 member_names: Vec::new_in(&self.allocator),
             },
+            ScopeType::TSModuleDeclaration => ScopeKind::Namespace {
+                current_stmt_binding_identifiers: Vec::new_in(&self.allocator),
+                exported_identifiers: Vec::new_in(&self.allocator),
+            },
             _ => ScopeKind::Other,
         };
         self.scope_stack.push(Scope {
@@ -277,6 +285,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             kind,
             current_enum_decl: None,
             member_identifiers_by_enum_names: HashMap::new_in(&self.allocator),
+            current_namespace_decl: None,
         });
     }
 
@@ -347,6 +356,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                     }
                 }));
             }
+
             _ => {}
         }
     }
@@ -406,6 +416,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             }
         }
     }
+
     #[inline]
     fn handle_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'ast, A>) {
         let Some(last_patch) = self.patches.last() else {
@@ -415,6 +426,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             self.patches.push_merging_tail(decl.span());
         }
     }
+
     #[inline]
     fn handle_export_all_declaration(&mut self, decl: &ExportAllDeclaration<'ast, A>) {
         if decl.export_kind.is_type() {
@@ -439,6 +451,75 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         interface_decl: &TSInterfaceDeclaration<'ast, A>,
     ) {
         self.patches.push_merging_tail(interface_decl.span);
+    }
+
+    fn handle_ts_module_declaration_name(&mut self, name: &TSModuleDeclarationName<'ast>) {
+        let TSModuleDeclarationName::Identifier(name_identifier) = name else {
+            return;
+        };
+        let cur_scope = self.scope_stack.last_mut().unwrap();
+        let namespace_name = &self.source[name_identifier.span];
+
+        cur_scope.current_namespace_decl = Some(CurrentNamespaceDeclaration {
+            namespace_name: self.allocator.alloc_str(namespace_name),
+            // The span should cover the namespace/module token, but we don't know the start of it in `handle_ts_module_declaration_name`.
+            // Store the index of the patch and change the span start later in `handle_ts_module_declaration``
+            index_of_patch_before_namespace_name: self.patches.len(),
+        });
+
+        self.patches.push((
+            name_identifier.span.start..name_identifier.span.start,
+            format!(in &self.allocator, "var {};(function(", namespace_name).into_bump_str(),
+        ));
+        self.patches
+            .push(((name_identifier.span.end..name_identifier.span.end), "){"));
+    }
+
+    fn handle_binding_identifier(&mut self, id: &BindingIdentifier<'ast>) {
+        if let ScopeKind::Namespace {
+            current_stmt_binding_identifiers,
+            ..
+        } = &mut self.scope_stack.last_mut().unwrap().kind
+        {
+            let id = &self.source[id.span];
+            current_stmt_binding_identifiers.push(self.allocator.alloc_str(id));
+        }
+    }
+
+    fn handle_ts_module_declaration(&mut self, decl: &TSModuleDeclaration<'ast, A>) {
+        if decl.declare {
+            self.patches.push_merging_tail(decl.span);
+            return;
+        }
+        let Some(current_namespace_decl) = &self.scope_stack.last().unwrap().current_namespace_decl
+        else {
+            return;
+        };
+        self.patches[current_namespace_decl.index_of_patch_before_namespace_name]
+            .span
+            .start = decl.span.start;
+
+        // handling namespace A in `namespace A.B`.
+        if let Some(TSModuleDeclarationBody::TSModuleDeclaration(inner_module)) = &decl.body {
+            // extend the patch after the namepsace name to remove the dot
+            self.patches[current_namespace_decl.index_of_patch_before_namespace_name + 1]
+                .span
+                .end = inner_module.span().start;
+        }
+
+        // if the decl starts with the decl id, then we are at namespace B of `namespace A.B`
+        let tail_replacement = if decl.span.start == decl.id.span().start {
+            let parent_namespace_name = self.scope_stack[self.scope_stack.len() - 2].current_namespace_decl.as_ref().expect("expect parent namespace A to exist while handling a subnamespace B (namespace A.B { .. }) ").namespace_name;
+            // }).call(B = A.B || A.B = {}, A.B);
+            format!(in &self.allocator, "}}).call({0}={1}.{0}||({1}.{0}={{}}),{1}.{0});", current_namespace_decl.namespace_name, parent_namespace_name)
+        } else {
+            format!(in &self.allocator, "}}).call({0}||({0}={{}}),{0});", current_namespace_decl.namespace_name)
+        };
+
+        self.patches.push((
+            (decl.span.end..decl.span.end),
+            tail_replacement.into_bump_str(),
+        ));
     }
 
     fn handle_ts_enum_head(&mut self, enum_head: &TSEnumHead<'ast>) {
@@ -631,12 +712,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         }
     }
     #[inline]
-    fn handle_ts_module_declaration(&mut self, decl: &TSModuleDeclaration<'ast, A>) {
-        if decl.declare {
-            self.patches.push_merging_tail(decl.span);
-        }
-    }
-    #[inline]
     fn handle_ts_type_alias_declaration(&mut self, decl: &TSTypeAliasDeclaration<'ast, A>) {
         self.patches.push_merging_tail(decl.span);
     }
@@ -674,15 +749,18 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     #[inline]
     fn handle_statement(&mut self, stmt: &Statement<'ast, A>) {
         let stmt_span = stmt.span();
-        self.statement_asi(stmt_span);
         let scope = self.scope_stack.last_mut().unwrap();
         scope.current_enum_decl = None;
-        if let ScopeKind::FunctionWithParamProps {
-            prologue_scan_state,
-            ..
-        } = &mut scope.kind
-        {
-            match prologue_scan_state {
+        scope.current_namespace_decl = None;
+        // if let ScopeKind::FunctionWithParamProps {
+        //     prologue_scan_state,
+        //     ..
+        // } = &mut scope.kind
+        match &mut scope.kind {
+            ScopeKind::FunctionWithParamProps {
+                prologue_scan_state,
+                ..
+            } => match prologue_scan_state {
                 PrologueScanState::Init => {
                     *prologue_scan_state = PrologueScanState::End {
                         last_prologue_stmt_end: None,
@@ -698,8 +776,42 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                     }
                 }
                 PrologueScanState::End { .. } => {}
+            },
+            ScopeKind::Namespace {
+                current_stmt_binding_identifiers,
+                exported_identifiers,
+            } => {
+                if let Statement::ExportNamedDeclaration(export_stmt) = stmt {
+                    // remove `export` of the export decl in namespaces, and add assignments after the decl...
+                    let export_token_start = export_stmt.span().start;
+                    // provided the whole decl is not already removed (e.g. export interface/export declare)
+                    if !matches!(self.patches.last(), Some(patch) if patch.span.start == export_token_start)
+                    {
+                        let export_span = Span::new(
+                            export_token_start,
+                            (export_token_start + const { "export".len() as u32 }),
+                        );
+                        debug_assert_eq!(&self.source[export_span], "export");
+                        self.patches.binary_search_insert((export_span, ""));
+
+                        let mut assignments = String::new_in(&self.allocator);
+                        let end = export_stmt.span().end;
+                        if self.source.as_bytes()[end as usize - 1] != b';' {
+                            assignments.push(';');
+                        }
+                        for id in current_stmt_binding_identifiers.iter() {
+                            assignments
+                                .write_fmt(format_args!("this.{0}={0};", id))
+                                .unwrap();
+                        }
+                        self.patches.push(((end..end), assignments.into_bump_str()));
+                    }
+                }
+                current_stmt_binding_identifiers.clear();
             }
+            _ => {}
         }
+        self.statement_asi(stmt.span());
     }
 
     #[inline]

@@ -9,7 +9,7 @@ mod patch_builder;
 use handler::StripHandler;
 pub use oxc_allocator::Allocator;
 pub use oxc_allocator::String;
-use oxc_diagnostics::OxcDiagnostic;
+pub use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::{ParseOptions, Parser};
 use oxc_span::ast_alloc::AstAllocator;
 pub use oxc_span::SourceType;
