@@ -1,8 +1,36 @@
 {
   "version": "4",
   "specifiers": {
+    "jsr:@std/assert@^1.0.10": "1.0.10",
+    "jsr:@std/assert@^1.0.9": "1.0.9",
+    "jsr:@std/internal@^1.0.5": "1.0.5",
+    "jsr:@std/testing@^1.0.8": "1.0.8",
     "npm:@ts-morph/bootstrap@0.26": "0.26.0",
     "npm:esbuild@0.24": "0.24.2"
+  },
+  "jsr": {
+    "@std/assert@1.0.9": {
+      "integrity": "a9f0c611a869cc791b26f523eec54c7e187aab7932c2c8e8bea0622d13680dcd",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/assert@1.0.10": {
+      "integrity": "59b5cbac5bd55459a19045d95cc7c2ff787b4f8527c0dd195078ff6f9481fbb3",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.5": {
+      "integrity": "54a546004f769c1ac9e025abd15a76b6671ddc9687e2313b67376125650dc7ba"
+    },
+    "@std/testing@1.0.8": {
+      "integrity": "ceef535808fb7568e91b0f8263599bd29b1c5603ffb0377227f00a8ca9fe42a2",
+      "dependencies": [
+        "jsr:@std/assert@^1.0.10",
+        "jsr:@std/internal"
+      ]
+    }
   },
   "npm": {
     "@esbuild/aix-ppc64@0.24.2": {
@@ -239,6 +267,8 @@
   },
   "workspace": {
     "dependencies": [
+      "jsr:@std/assert@^1.0.9",
+      "jsr:@std/testing@^1.0.8",
       "npm:@ts-morph/bootstrap@0.26",
       "npm:esbuild@0.24"
     ]

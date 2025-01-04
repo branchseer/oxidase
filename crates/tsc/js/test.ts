@@ -1,16 +1,11 @@
-import { assertEquals } from "jsr:@std/assert";
-import { describe, it } from "jsr:@std/testing/bdd";
+import { assertEquals } from "@std/assert";
+import { describe, it } from "@std/testing/bdd";
 import { processTs } from "./index.ts";
 
 describe("processTs", () => {
     it('should format and transpile ts', () => {
-        const result = processTs("class A { @foo a(): string {} }");
-        assertEquals(result?.ts, `class A {
-    @foo
-    a(): string { }
-}
-`)
-
+        const result = processTs("class A { @foo a(): string {} }", false);
+        assertEquals(result?.ts, "class A { @foo a(): string {} }")
         assertEquals(result?.js, `class A {
     @foo
     a() { }
@@ -19,11 +14,11 @@ describe("processTs", () => {
     });
 
     it("should return null when there's a syntax error", () => {
-        const result = processTs("function a() {");
+        const result = processTs("function a() {", false);
         assertEquals(result, null);
     });
     it("should preserve module statements", () => {
-        const result = processTs("import a from 'a'; import a = require('a'); export = 'b'; export const b = 'b'");
+        const result = processTs("import a from 'a'; import a = require('a'); export = 'b'; export const b = 'b'", false);
         assertEquals(result?.js, `import a from 'a';
 const a = require("a");
 module.exports = 'b';
@@ -32,23 +27,20 @@ export const b = 'b';
     });
 
     it("should detect script type", () => {
-        const result = processTs("console.log(1)");
+        const result = processTs("console.log(1)", false);
         assertEquals(result?.kind, 'script');
     })
     it("should detect module type", () => {
-        const result = processTs("export const a = 1");
+        const result = processTs("export const a = 1", false);
         assertEquals(result?.kind, 'module');
     })
     it("should remove enums and namespaces", () => {
-        const result = processTs("enum a {}\nnamespace b{}");
-        assertEquals(result?.ts, '');
+        const result = processTs("'你好'\nenum a {}\nnamespace b{}", true);
+        assertEquals(result?.ts, "'你好'\n;\n;");
     })
     it("should preserve declared enums and namespaces", () => {
-        const result = processTs("declare enum a {}\ndeclare namespace b{}");
-        assertEquals(result?.ts, `declare enum a {
-}
-declare namespace b { }
-`);
+        const result = processTs("declare enum a {}\ndeclare namespace b{}", true);
+        assertEquals(result?.ts, "declare enum a {}\ndeclare namespace b{}");
     })
 });
 

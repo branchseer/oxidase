@@ -31,7 +31,6 @@ export function processTs(
 			scriptKind: ts.ScriptKind.TS,
 		},
 	);
-
 	const program = project.createProgram({
 		rootNames: [TS_SOURCE_FILENAME],
 		options: compilerOptions,
@@ -41,54 +40,65 @@ export function processTs(
 		return null;
 	}
 
-	let isJsChanged = false;
-	const printer = ts.createPrinter({
-		removeComments: true,
-	}, {
-		substituteNode(_hint, node) {
-			// ## workarounds for inconsitent behaviors between tsc and oxidase
 
-			// ## `get a();` / `constructor();`
-			// - tsc generates body for them
-			// - oxidase strips them (TODO: to be consistent with tsc)
-			if (ts.isAccessor(node) && (node.body === undefined)) {
-				return ts.factory.createNotEmittedStatement(node);
-			}
-			// `export import foo = require('foo')`
-			// - tsc generates `const foo = require('foo'); export { foo };`
-			// - oxidase generates `export const foo = require('foo');`
-			if (
-				ts.isImportEqualsDeclaration(node) && !node.isTypeOnly &&
-				node.modifiers?.some((modifier) =>
-					modifier.kind === ts.SyntaxKind.ExportKeyword
-				) && ts.isExternalModuleReference(node.moduleReference)
-			) {
-				isJsChanged = true;
-				return ts.factory.createNotEmittedStatement(node);
-			}
+	// ## workarounds for inconsitent behaviors between tsc and oxidase
+	function shouldRemove(node: ts.Node): boolean {
+		// ## `get a();` / `constructor();`
+		// - tsc generates body for them
+		// - oxidase strips them (TODO: to be consistent with tsc)
+		if (ts.isAccessor(node) && (node.body === undefined)) {
+			return true;
+		}
 
-			// ## Codegen node (enum and namespace)
-			if (stripEnumAndNamespace && (
-				(ts.isEnumDeclaration(node) || ts.isModuleDeclaration(node)) &&
-				// Preseve declare enum/namespace
-				(ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Ambient) === 0
-			)) {
-				isJsChanged = true;
-				return ts.factory.createNotEmittedStatement(node);
-			}
-			return node;
-		},
-	});
-	const transformedCode = printer.printNode(
-		ts.EmitHint.SourceFile,
-		sourceFile,
-		sourceFile,
-	);
+		// `export import foo = require('foo')`
+		// - tsc generates `const foo = require('foo'); export { foo };`
+		// - oxidase generates `export const foo = require('foo');`
+		if (
+			ts.isImportEqualsDeclaration(node) && !node.isTypeOnly &&
+			node.modifiers?.some((modifier) =>
+				modifier.kind === ts.SyntaxKind.ExportKeyword
+			) && ts.isExternalModuleReference(node.moduleReference)
+		) {
+			return true;
+		}
 
-	const { outputText } = ts.transpileModule(transformedCode, { compilerOptions });
+
+		//  Codegen node (enum and namespace)
+		if (stripEnumAndNamespace && (
+			(ts.isEnumDeclaration(node) || ts.isModuleDeclaration(node)) &&
+			// Preseve declare enum/namespace
+			(ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Ambient) === 0
+		)) {
+			return true;
+		}
+		return false;
+	}
+
+	const spansToRemove: [number, number][] = [];
+	function visit(node: ts.Node) {
+		if (shouldRemove(node)) {
+			spansToRemove.push([node.getStart(), node.getEnd()]);
+		} else {
+			ts.forEachChild(node, visit);
+		}
+	}
+	visit(sourceFile);
+
+	let start = 0;
+	let codeSegments: string[] = [];
+	if (spansToRemove.length > 0) {
+		for (const span of spansToRemove) {
+			codeSegments.push(sourceCode.slice(start, span[0]));
+			start = span[1];
+		}
+		codeSegments.push(sourceCode.slice(start));
+		sourceCode = codeSegments.join(';');
+	}
+
+	const { outputText } = ts.transpileModule(sourceCode, { compilerOptions });
 
 	return {
-		ts: isJsChanged ? transformedCode : sourceCode,
+		ts: sourceCode,
 		js: outputText,
 		kind: ts.isExternalModule(sourceFile) ? "module" : "script",
 	};
