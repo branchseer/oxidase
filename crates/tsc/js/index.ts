@@ -52,7 +52,6 @@ export function processTs(
 			// - tsc generates body for them
 			// - oxidase strips them (TODO: to be consistent with tsc)
 			if (ts.isAccessor(node) && (node.body === undefined)) {
-				isJsChanged = true;
 				return ts.factory.createNotEmittedStatement(node);
 			}
 			// `export import foo = require('foo')`

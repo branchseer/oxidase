@@ -29,10 +29,7 @@ impl EvalError {
 }
 
 pub fn eval(src: &str) -> Result<serde_json::Value, EvalError> {
-    thread_local! { static ISOLATE: RefCell<Option<v8::OwnedIsolate>> = RefCell::new(None) }
-    ISOLATE.with_borrow_mut(|isolate| {
-        let isolate = isolate.get_or_insert_with(|| v8::Isolate::new(v8::CreateParams::default()));
-
+    oxidase_tsc::v8_utils::with_isolate(|isolate| {
         let handle_scope = &mut v8::HandleScope::new(isolate);
         let context = v8::Context::new(handle_scope, Default::default());
 
@@ -58,7 +55,11 @@ pub fn eval(src: &str) -> Result<serde_json::Value, EvalError> {
             if let Some(exception) = scope.exception() {
                 EvalError::from_evaluation_exception(scope, exception)
             } else {
-                EvalError::ModuleEvaluationError { message: "Unknown error".to_owned(), line: 0, column: 0 }
+                EvalError::ModuleEvaluationError {
+                    message: "Unknown error".to_owned(),
+                    line: 0,
+                    column: 0,
+                }
             }
         })?;
 
@@ -82,18 +83,8 @@ mod tests {
 
     use super::*;
 
-    fn ensure_v8_init() {
-        static INIT_ONCE: Once = Once::new();
-        INIT_ONCE.call_once(|| {
-            let platform = v8::new_default_platform(0, false).make_shared();
-            v8::V8::initialize_platform(platform);
-            v8::V8::initialize();
-        });
-    }
-
     #[test]
     fn basic() {
-        ensure_v8_init();
         let json = eval("export const a = {  b: 2 }; export const x = [null, ''];").unwrap();
         assert_eq!(
             json,
@@ -103,7 +94,6 @@ mod tests {
 
     #[test]
     fn syntax_error() {
-        ensure_v8_init();
         assert!(matches!(
             eval("!"),
             Err(EvalError::ModuleEvaluationError { .. })
@@ -111,7 +101,6 @@ mod tests {
     }
     #[test]
     fn runtime_error() {
-        ensure_v8_init();
         assert!(matches!(
             eval("throw new Error()"),
             Err(EvalError::ModuleEvaluationError { .. })

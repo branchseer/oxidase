@@ -37,9 +37,9 @@ pub fn remove_empty_statements(node: &mut Program) {
     node.visit_mut_with(&mut EmptyStatementRemover);
 }
 
-pub fn format_js(source: impl Into<String>) -> anyhow::Result<String> {
+pub fn format_js(source: &str) -> anyhow::Result<String> {
     let cm = Arc::new(SourceMap::default());
-    let fm = cm.new_source_file(FileName::Custom("a.js".into()).into(), source.into());
+    let fm = cm.new_source_file(FileName::Custom("a.js".into()).into(), source.to_owned());
     let mut errors = vec![];
 
     let mut program = with_file_parser(
@@ -81,10 +81,6 @@ mod tests {
 
     #[test]
     fn test_format_ts() {
-        let allocator = Allocator::default();
-        let mut source = std::fs::read_to_string("/Users/patr0nus/code/oxidase/crates/e2e/fixtures/ecosystem/TypeScript/tests/cases/compiler/argumentsObjectIterator01_ES6.ts").unwrap();
-        oxidase::transpile(&allocator, SourceType::ts(), &mut source);
-        println!("--------------------\n{}", source);
-        println!("--------------------\n{}", format_js(source.as_str()).unwrap());
+        println!("--------------------\n{}", format_js("@null class z").unwrap());
     }
 }
