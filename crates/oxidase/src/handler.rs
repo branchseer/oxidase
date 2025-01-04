@@ -1127,6 +1127,22 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
 
     #[inline]
     fn handle_arrow_function_expression(&mut self, arrow_func: &ArrowFunctionExpression<'ast, A>) {
+        /*
+            `async
+            () =>`
+             to
+            `async (
+            ) =>`
+         */
+        if let (true, Some(type_param)) = (arrow_func.r#async, &arrow_func.type_parameters) {
+            let type_param_strip_patch_index = self.patches.binary_search_by_key(&type_param.span().start, |patch| patch.span.start).unwrap();
+            let type_param_strip_patch = &mut self.patches[type_param_strip_patch_index];
+            debug_assert_eq!(type_param_strip_patch.span, type_param.span());
+            debug_assert_eq!(type_param_strip_patch.replacement, "");
+            
+            type_param_strip_patch.replacement = "(";
+            type_param_strip_patch.span.end = arrow_func.params.span().start + 1;
+        }
         // `()
         // => ...`
         // to
