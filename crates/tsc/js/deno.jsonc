@@ -1,7 +1,7 @@
 {
   "nodeModulesDir": "auto",
   "imports": {
-    "@ts-morph/bootstrap": "npm:@ts-morph/bootstrap@^0.25.0",
+    "@ts-morph/bootstrap": "npm:@ts-morph/bootstrap@^0.26.0",
     "esbuild": "npm:esbuild@^0.24.0"
   },
   "tasks": {
