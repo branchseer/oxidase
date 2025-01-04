@@ -45,7 +45,8 @@ pub fn remove_empty_statements(node: &mut Program) {
 
 pub fn format_js(source: &str) -> anyhow::Result<String> {
     let cm = Arc::new(SourceMap::default());
-    let fm = cm.new_source_file(FileName::Custom("a.js".into()).into(), source.to_owned());
+    let source = source.replace("@null", "@(null)");
+    let fm = cm.new_source_file(FileName::Custom("a.js".into()).into(), source);
     let mut errors = vec![];
 
     let mut program = with_file_parser(
@@ -93,6 +94,7 @@ mod tests {
 
     #[test]
     fn test_format_ts() {
-        println!("--------------------\n{}", format_js("60_000").unwrap());
+        let source = std::fs::read_to_string("/Users/patr0nus/code/oxidase/crates/e2e/fixture/ecosystem/ts-blank-space/tests/fixture/cases/a.ts").unwrap();
+        println!("--------------------\n{}", format_js(&source).unwrap());
     }
 }
