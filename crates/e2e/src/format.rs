@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use swc::{Compiler, PrintArgs};
 use swc_common::{FileName, SourceMap, Spanned};
-use swc_ecma_ast::{EsVersion, Program};
+use swc_ecma_ast::{BigInt, EsVersion, Number, Program, Str};
 use swc_ecma_parser::{with_file_parser, Syntax};
 use swc_ecma_transforms::fixer::{fixer, paren_remover};
 
@@ -24,13 +24,19 @@ impl VisitMut for EmptyStatementRemover {
         stmts.retain(|stmt| !matches!(stmt, Stmt::Empty(..)));
         stmts.visit_mut_children_with(self);
     }
-    fn visit_mut_lit(&mut self, lit: &mut Lit) {
-        if let Lit::Str(str_lit) = lit {
-            // Make printer generate consistent quote type instead of relying on the input
-            str_lit.raw = None;
-        }
-        lit.visit_mut_children_with(self);
+
+    // Make printer generate consistent quote type instead of relying on the input
+    fn visit_mut_number(&mut self, lit: &mut Number) {
+        lit.raw = None;
     }
+    fn visit_mut_str(&mut self, lit: &mut Str) {
+        lit.raw = None;
+    }
+    
+    fn visit_mut_big_int(&mut self, lit: &mut BigInt) {
+        lit.raw = None;
+    }
+
 }
 
 pub fn remove_empty_statements(node: &mut Program) {
@@ -66,11 +72,17 @@ pub fn format_js(source: &str) -> anyhow::Result<String> {
 
     let compiler = Compiler::new(cm);
 
+    let print_args = PrintArgs::default();
+    
     let ret = compiler.print(
         &program, // ast to print
-        PrintArgs::default(),
+        print_args,
     )?;
-    Ok(ret.code)
+
+    // swc preserves trailing comma in `export { a, } `
+    // TODO: fix this in a proper way
+    let code = ret.code.replace(",  }", " }");
+    Ok(code)
 }
 
 #[cfg(test)]
@@ -81,6 +93,6 @@ mod tests {
 
     #[test]
     fn test_format_ts() {
-        println!("--------------------\n{}", format_js("@null class z").unwrap());
+        println!("--------------------\n{}", format_js("60_000").unwrap());
     }
 }
