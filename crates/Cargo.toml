@@ -7,6 +7,7 @@ oxc_allocator = { path = "../../oxc/crates/oxc_allocator" }
 oxc_parser = { path = "../../oxc/crates/oxc_parser" }
 oxc_span = { path = "../../oxc/crates/oxc_span" }
 oxc_syntax = { path = "../../oxc/crates/oxc_syntax" }
+oxc_index = { path = "../../oxc/crates/oxc_index" }
 oxc_diagnostics = { path = "../../oxc/crates/oxc_diagnostics" }
 oxc_ast = { path = "../../oxc/crates/oxc_ast" }
 oxidase_tsc = { path = "tsc" }
@@ -47,8 +48,8 @@ swc_ecma_visit = "5.0.0"
 thiserror = "1.0.63"
 v8 = "130.0.2"
 criterion = "0.5.1"
-
-
+oxc_sourcemap = "1.0.6"
+nonmax = "0.5.5"
 
 [profile.release]
 opt-level     = 3

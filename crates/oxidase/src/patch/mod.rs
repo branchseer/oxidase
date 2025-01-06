@@ -1,3 +1,5 @@
+mod sourcemap_builder;
+
 use std::{
     cmp::min, mem::{transmute, MaybeUninit}, ops::Range, slice::from_raw_parts_mut, str::from_utf8
 };
