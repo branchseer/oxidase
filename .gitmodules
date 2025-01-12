@@ -15,3 +15,6 @@
 [submodule "crates/e2e/fixture/ecosystem/pnpm"]
 	path = crates/e2e/fixture/ecosystem/pnpm
 	url = https://github.com/pnpm/pnpm
+[submodule "crates/e2e/fixture/ecosystem/babel"]
+	path = crates/e2e/fixture/ecosystem/babel
+	url = https://github.com/babel/babel

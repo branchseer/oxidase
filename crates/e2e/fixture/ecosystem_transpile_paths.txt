@@ -1,5 +1,7 @@
 ?ecosystem/TypeScript/tests/cases/compiler
+?ecosystem/babel/packages/babel-plugin-transform-typescript/test/fixtures
 ecosystem/TypeScript/src/compiler
+ecosystem/TypeScript/src/services
 ecosystem/swc/crates/swc_fast_ts_strip/tests/fixture
 ecosystem/ts-blank-space/tests/fixture
 ecosystem/zod
