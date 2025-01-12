@@ -1,4 +1,3 @@
-use std::f32::consts::E;
 use std::fmt::Write;
 use std::ops::Range;
 
@@ -42,7 +41,6 @@ pub struct StripHandlerCheckpoint {
 #[derive(Debug)]
 
 struct LastStatement {
-    span: Span,
     is_first: bool,
 
     /// None if the statement's suffix/whole is not patched
@@ -236,7 +234,6 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
             }
         }
         self.cur_scope_mut().last_statement = Some(LastStatement {
-            span,
             is_first,
             patch: current_stmt_patch,
         });
