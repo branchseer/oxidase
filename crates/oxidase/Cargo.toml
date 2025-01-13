@@ -19,6 +19,7 @@ oxc_syntax = { workspace = true }
 oxc_diagnostics = { workspace = true }
 oxc_ast = { workspace = true }
 oxc_index = { workspace = true }
+oxc_data_structures = { workspace = true }
 thiserror = { workspace = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }

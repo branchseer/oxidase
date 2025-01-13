@@ -1,9 +1,2 @@
-let f = async <
-    T
->(v: T) => v;
-
-let g = async <
-    T
->(v: T)
-    : Promise<any> => 
-        v;
+export var let: string = 1;
+// var let = 1;

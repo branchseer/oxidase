@@ -17,3 +17,17 @@ impl StringBuf for String {
         unsafe { self.as_mut_vec().as_mut_ptr() }
     }
 }
+
+impl<'a> StringBuf for crate::String<'a> {
+    fn as_mut_ptr(&mut self) -> *mut u8 {
+        unsafe { self.as_mut_vec().as_mut_ptr() }
+    }
+
+    fn reserve(&mut self, capacity: usize) {
+        crate::String::reserve(self, capacity);
+    }
+
+    unsafe fn set_len(&mut self, len: usize) {
+       self.as_mut_vec().set_len(len);
+    }
+}

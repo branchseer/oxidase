@@ -1495,6 +1495,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxc_data_structures"
+version = "0.45.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6e5733140ed9d97c9829e02b8a09c89c7c31a019905c123aa9405373b5b3515"
+dependencies = [
+ "assert-unchecked",
+ "ropey",
+]
+
+[[package]]
 name = "oxc_diagnostics"
 version = "0.31.0"
 dependencies = [
@@ -1711,6 +1721,7 @@ dependencies = [
  "nonmax",
  "oxc_allocator 0.31.0",
  "oxc_ast 0.31.0",
+ "oxc_data_structures",
  "oxc_diagnostics 0.31.0",
  "oxc_index 0.31.0",
  "oxc_parser 0.31.0",
@@ -2136,6 +2147,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
+name = "ropey"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93411e420bcd1a75ddd1dc3caf18c23155eda2c090631a85af21ba19e97093b5"
+dependencies = [
+ "smallvec 1.13.2",
+ "str_indices",
+]
+
+[[package]]
 name = "rquickjs"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2514,6 +2535,12 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "str_indices"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d08889ec5408683408db66ad89e0e1f93dff55c73a4ccc71c427d5b277ee47e6"
 
 [[package]]
 name = "string_enum"

@@ -10,6 +10,7 @@ oxc_syntax = { path = "../../oxc/crates/oxc_syntax" }
 oxc_index = { path = "../../oxc/crates/oxc_index" }
 oxc_diagnostics = { path = "../../oxc/crates/oxc_diagnostics" }
 oxc_ast = { path = "../../oxc/crates/oxc_ast" }
+oxc_data_structures = "0.45.0"
 oxidase_tsc = { path = "tsc" }
 oxidase = { path = "oxidase" }
 copy_from_str = "1.0.6"
@@ -68,3 +69,11 @@ debug-assertions = true # Make sure `debug_assert!`s pass
 overflow-checks = true # Catch arithmetic overflow errors
 incremental = true
 panic = "unwind"
+
+
+# Profile used for release mode, but with debugging information for profiling
+# and debugging. Use `cargo build --profile=release-with-debug` to build with this profile.
+[profile.release-with-debug]
+inherits = "release"
+strip = false # Keep debug information in binary
+debug = true # Include maximum amount of debug information

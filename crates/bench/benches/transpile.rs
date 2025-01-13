@@ -57,9 +57,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     for (param_name, input_path) in [("parser.ts", "TypeScript/src/compiler/checker.ts")] {
         let mut allocator = oxidase::Allocator::default();
         let source = read_to_string(fixture_ecosystem_dir.join(input_path)).unwrap();
-        dbg!(source.len());
         let source = tsc.process_ts(&source, true).unwrap().ts;
-        dbg!(source.len());
 
         group.bench_with_input(
             BenchmarkId::new("oxidase", param_name),
@@ -80,24 +78,24 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             },
         );
 
-        group.bench_with_input(
-            BenchmarkId::new("oxidase disable allow_skip_ambient", param_name),
-            source.as_str(),
-            |b, input| {
-                b.iter_custom(|iters| {
-                    let mut elapsed = Duration::ZERO;
-                    for _ in 0..iters {
-                        let mut source = String::from(input);
-                        let start = Instant::now();
-                        oxidase(&allocator, &mut source, true, false);
-                        black_box(source);
-                        allocator.reset();
-                        elapsed += start.elapsed();
-                    }
-                    elapsed
-                });
-            },
-        );
+        // group.bench_with_input(
+        //     BenchmarkId::new("oxidase disable allow_skip_ambient", param_name),
+        //     source.as_str(),
+        //     |b, input| {
+        //         b.iter_custom(|iters| {
+        //             let mut elapsed = Duration::ZERO;
+        //             for _ in 0..iters {
+        //                 let mut source = String::from(input);
+        //                 let start = Instant::now();
+        //                 oxidase(&allocator, &mut source, true, false);
+        //                 black_box(source);
+        //                 allocator.reset();
+        //                 elapsed += start.elapsed();
+        //             }
+        //             elapsed
+        //         });
+        //     },
+        // );
 
         // group.bench_with_input(
         //     BenchmarkId::new("swc_fast_ts_strip", param_name),

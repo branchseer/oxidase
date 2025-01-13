@@ -59,7 +59,10 @@ pub fn transpile_with_options<A: AstAllocator, S: StringBuf>(
     }
     let errors = std::mem::take(&mut parser_ret.errors);
 
-    let patches = parser_ret.handler.into_patches();
+    let handler = parser_ret.handler;
+    debug_assert_eq!(handler.scope_len(), 0);
+
+    let patches = handler.into_patches();
 
     unsafe { apply_patches(&patches, source) };
 

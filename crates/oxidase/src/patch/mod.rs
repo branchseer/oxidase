@@ -55,16 +55,19 @@ impl<'a> BackwardCursor<'a> {
         self.pos -= len;
         &mut self.buf[self.pos..(self.pos + len)]
     }
+    #[inline]
     pub fn write(&mut self, src: &[u8]) {
         // SAFETY: &[u8] and &[MaybeUninit<u8>] have the same layout
         let uninit_src: &[MaybeUninit<u8>] = unsafe { transmute(src) };
         self.back_by(uninit_src.len()).copy_from_slice(uninit_src);
     }
+    #[inline]
     pub fn write_byte(&mut self, data: u8) {
         self.pos -= 1;
         self.buf[self.pos] = MaybeUninit::new(data);
     }
 
+    #[inline]
     pub fn write_within(&mut self, src: Range<usize>) {
         let dest_start = self.pos - src.len();
         if src.start != dest_start {
@@ -74,20 +77,28 @@ impl<'a> BackwardCursor<'a> {
     }
 
     /// Safety: self.buf[..src.end] must be inititialized.
+    #[inline]
     pub unsafe fn write_whitespaces_preserving_newlines(&mut self, src: Range<usize>) {
         let mut src_index = src.end as isize - 1;
-        'scan_src: while src_index >= src.start as isize {
-            for line_terminator in LINE_TERMINATORS {
-                if transmute::<&[MaybeUninit<u8>], &[u8]>(&self.buf[..=src_index as usize])
-                    .ends_with(line_terminator)
-                {
-                    self.write(line_terminator);
-                    src_index -= line_terminator.len() as isize;
-                    continue 'scan_src;
+        // let Some(mut src_index) = src.end.checked_sub(1) else {
+        //     return;
+        // };
+        while src_index >= src.start as isize {
+            let byte = self.buf[src_index as usize].assume_init();
+            match byte {
+                b'\r' | b'\n' => {
+                    self.write_byte(byte);
+                    src_index -= 1;
+                },
+                168 | 169 if matches!(transmute::<&[MaybeUninit<u8>], &[u8]>(&self.buf[..src_index as usize]), [.., 226, 128])  => {
+                    self.write(&[226, 128, byte]);
+                    src_index -= 3;
+                },
+                _ => {
+                    self.write_byte(b' ');
+                    src_index -= 1;
                 }
             }
-            self.write_byte(b' ');
-            src_index -= 1;
         }
     }
 }
