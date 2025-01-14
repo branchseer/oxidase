@@ -1,10 +1,6 @@
 {
     "rust-analyzer.checkOnSave": true,
-    "rust-analyzer.linkedProjects": [
-        "crates/Cargo.toml"
-    ],
     "deno.enable": false,
-    "explorer.excludeGitIgnore": true,    
     "javascript.validate.enable": false,
     "typescript.validate.enable": false,
 }
