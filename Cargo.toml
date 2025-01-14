@@ -1,18 +1,18 @@
 [workspace]
-members = [ "oxidase", "e2e", "tsc", "bench"]
+members = [ "crates/oxidase", "crates/e2e", "crates/tsc", "crates/bench", "crates/oxidase_wasm"]
 resolver = "2"
 
 [workspace.dependencies]
-oxc_allocator = { path = "../../oxc/crates/oxc_allocator" }
-oxc_parser = { path = "../../oxc/crates/oxc_parser" }
-oxc_span = { path = "../../oxc/crates/oxc_span" }
-oxc_syntax = { path = "../../oxc/crates/oxc_syntax" }
-oxc_index = { path = "../../oxc/crates/oxc_index" }
-oxc_diagnostics = { path = "../../oxc/crates/oxc_diagnostics" }
-oxc_ast = { path = "../../oxc/crates/oxc_ast" }
+oxc_allocator = { path = "../oxc/crates/oxc_allocator" }
+oxc_parser = { path = "../oxc/crates/oxc_parser" }
+oxc_span = { path = "../oxc/crates/oxc_span" }
+oxc_syntax = { path = "../oxc/crates/oxc_syntax" }
+oxc_index = { path = "../oxc/crates/oxc_index" }
+oxc_diagnostics = { path = "../oxc/crates/oxc_diagnostics" }
+oxc_ast = { path = "../oxc/crates/oxc_ast" }
 oxc_data_structures = "0.45.0"
-oxidase_tsc = { path = "tsc" }
-oxidase = { path = "oxidase" }
+oxidase_tsc = { path = "crates/tsc" }
+oxidase = { path = "crates/oxidase" }
 copy_from_str = "1.0.6"
 rustc-hash = "2.0.0"
 hashbrown = "0.14.5"

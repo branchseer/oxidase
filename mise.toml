@@ -1,0 +1,2 @@
+[tools]
+"cargo:wasm-pack" = "0.13.1"
