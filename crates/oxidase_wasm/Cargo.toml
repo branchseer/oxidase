@@ -1,8 +1,8 @@
 [package]
 name = "oxidase_wasm"
-version = "0.1.0"
-authors = ["branchseer <dk4rest@gmail.com>"]
+version = "0.0.0"
 edition = "2021"
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -11,6 +11,8 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = "0.2.84"
 console_error_panic_hook = "0.1.7"
 oxidase = { workspace = true }
+serde = { workspace = true, features = [ "derive" ]}
+talc = { version = "4.4.2", default-features = false, features = ["lock_api"]}
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"

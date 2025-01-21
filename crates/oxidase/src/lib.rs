@@ -9,11 +9,10 @@ mod patch_builder;
 use handler::StripHandler;
 pub use oxc_allocator::Allocator;
 pub use oxc_allocator::String;
-pub use oxc_diagnostics::OxcDiagnostic;
+pub use oxc_diagnostics;
 use oxc_parser::{ParseOptions, Parser};
 use oxc_span::ast_alloc::AstAllocator;
 pub use oxc_span::SourceType;
-
 // expose for bench
 #[doc(hidden)]
 pub use oxc_span::ast_alloc::VoidAllocator;
@@ -24,7 +23,7 @@ pub use string_buf::StringBuf;
 #[derive(Debug)]
 pub struct TranspileReturn {
     pub parser_panicked: bool,
-    pub parser_errors: std::vec::Vec<OxcDiagnostic>,
+    pub parser_errors: std::vec::Vec<oxc_diagnostics::OxcDiagnostic>,
 }
 
 pub fn transpile<S: StringBuf>(
@@ -61,6 +60,8 @@ pub fn transpile_with_options<A: AstAllocator, S: StringBuf>(
 
     let handler = parser_ret.handler;
     debug_assert_eq!(handler.scope_len(), 0);
+
+    unsafe { println!("{}", allocator.iter_allocated_chunks_raw().map(|(_, len)| len).sum::<usize>()) }; 
 
     let patches = handler.into_patches();
 

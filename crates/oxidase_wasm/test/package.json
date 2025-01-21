@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "oxidase": "workspace:*",
+    "zx": "catalog:"
+  }
+}

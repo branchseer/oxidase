@@ -1,0 +1,6 @@
+[tasks.build-wasm]
+run = "wasm-pack build --release --no-pack --target bundler --out-dir npm/wasm_esm && wasm-pack build --release --no-pack --target nodejs --out-dir npm/wasm_node"
+
+[tasks.test]
+dir = "test"
+run = "node --test node.mjs"

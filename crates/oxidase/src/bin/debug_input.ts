@@ -1,2 +1,2 @@
-export var let: string = 1;
+export var let: string = ;
 // var let = 1;
