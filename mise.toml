@@ -4,3 +4,20 @@ node = "22.13.0"
 pnpm = "10.0.0"
 "cargo:wasm-bindgen-cli" = "0.2.100"
 "cargo:wasm-pack" = "0.13.1"
+
+[tasks.submodules]
+run = [
+    "mise clone-submodule crates/e2e/fixture/ecosystem/TypeScript https://github.com/microsoft/TypeScript 1c4083f4edc71cb1744a62013732e3c95d05a035",
+    "mise clone-submodule crates/e2e/fixture/ecosystem/babel https://github.com/babel/babel c079fddc50641a889bd94855ea2962c009d2e4b0",
+    "mise clone-submodule crates/e2e/fixture/ecosystem/pnpm https://github.com/pnpm/pnpm 0bc7a3f7469c2d3038a605bb340e30d2b273e7a8",
+    "mise clone-submodule crates/e2e/fixture/ecosystem/swc https://github.com/swc-project/swc e8f23cf92146828ea2a8b65724c7a6824acf9f0f",
+    "mise clone-submodule crates/e2e/fixture/ecosystem/ts-blank-space https://github.com/bloomberg/ts-blank-space 14c8181f173d2a3a57a909b7067f1dff6bf58ae5",
+    "mise clone-submodule crates/e2e/fixture/ecosystem/zod https://github.com/colinhacks/zod f7ad26147ba291cb3fb257545972a8e00e767470",
+]
+
+[tasks.clone-submodule]
+run = [
+  'cd {{arg(name="dir")}} || git init {{arg(name="dir")}}',
+  'cd {{arg(name="dir")}} && git remote add origin {{arg(name="url")}} || git remote set-url origin {{arg(name="url")}}',
+  'cd {{arg(name="dir")}} && git fetch --depth=1 origin {{arg(name="sha")}} && git reset --hard {{arg(name="sha")}}',
+]
