@@ -8,7 +8,6 @@ use std::{
     fmt::{Debug, Display, Write},
     fs::read_to_string,
     io,
-    os::unix::fs::MetadataExt,
     panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
@@ -24,8 +23,7 @@ use exec::{eval, EvalError};
 use format::format_js;
 use ignore::{DirEntry, WalkBuilder};
 use oxidase::{
-    line_term::line_terminator_start_iter, Allocator, OxcDiagnostic, SourceType,
-    String as AllocatorString,
+    line_term::line_terminator_start_iter, Allocator, oxc_diagnostics::OxcDiagnostic, SourceType,
 };
 use oxidase_tsc::{SourceKind, Tsc};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};

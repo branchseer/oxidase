@@ -3,10 +3,10 @@ use std::{cell::RefCell, fmt::Write};
 use oxidase::oxc_diagnostics::NamedSource;
 use wasm_bindgen::prelude::*;
 
+/*
 /// SAFETY: The runtime environment must be single-threaded WASM.
-#[cfg(target_family = "wasm")]
-#[global_allocator]
 static GLOBAL_ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+*/
 
 thread_local! {
     static ALLOCATOR: RefCell<oxidase::Allocator> = Default::default();

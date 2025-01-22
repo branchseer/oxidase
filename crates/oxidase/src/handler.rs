@@ -19,7 +19,6 @@ trait SpanExt {
     fn range(self) -> Range<usize>;
 }
 impl SpanExt for Span {
-    
     fn range(self) -> Range<usize> {
         self.start as usize..self.end as usize
     }
@@ -130,13 +129,16 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
             source,
             patches: PatchBuilder::new(source.as_bytes(), allocator),
             allocator,
-            scope_stack: NonEmptyStack::with_capacity(32, Scope {
-                last_statement: None,
-                kind: ScopeKind::Other,
-                member_identifiers_by_enum_names: HashMap::new_in(&allocator),
-                current_enum_decl: None,
-                current_namespace_decl: None,
-            }),
+            scope_stack: NonEmptyStack::with_capacity(
+                32,
+                Scope {
+                    last_statement: None,
+                    kind: ScopeKind::Other,
+                    member_identifiers_by_enum_names: HashMap::new_in(&allocator),
+                    current_enum_decl: None,
+                    current_namespace_decl: None,
+                },
+            ),
         }
     }
     pub fn scope_len(&self) -> usize {
@@ -145,16 +147,15 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
     pub fn into_patches(self) -> Vec<'alloc, Patch<'alloc>> {
         self.patches.into_patches()
     }
-    
+
     fn source_bytes(&self) -> &[u8] {
         self.source.as_bytes()
     }
 
-    
     fn cur_scope(&self) -> &Scope<'alloc> {
         self.scope_stack.last()
     }
-    
+
     fn cur_scope_mut(&mut self) -> &mut Scope<'alloc> {
         self.scope_stack.last_mut()
     }
@@ -199,7 +200,6 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
         }
     }
 
-    
     fn statement_asi(&mut self, span: Span) {
         let mut is_first = true;
         if let Some(last_statement) = &self.cur_scope().last_statement {
@@ -254,14 +254,14 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> ParserHandler<'ast, A>
     for StripHandler<'source, 'alloc>
 {
     type Checkpoint = StripHandlerCheckpoint;
-    
+
     fn checkpoint(&self) -> Self::Checkpoint {
         StripHandlerCheckpoint {
             patch_len: self.patches.len() as u32,
             scope_stack_len: self.scope_stack.len() as u32,
         }
     }
-    
+
     fn rewind(&mut self, checkpoint: Self::Checkpoint) {
         self.patches.truncate(checkpoint.patch_len as usize);
 
@@ -274,7 +274,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> ParserHandler<'ast, A>
 }
 
 impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandler<'source, 'alloc> {
-    
     fn enter_scope<T: AstScopeNode>(&mut self) {
         let kind = match T::SCOPE_TYPE {
             ScopeType::Class => ScopeKind::Class {
@@ -301,7 +300,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         });
     }
 
-    
     fn leave_scope(&mut self) {
         let scope = self.scope_stack.pop();
         match scope.kind {
@@ -320,7 +318,8 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                             ..
                         },
                     ..
-                } = self.scope_stack.last_mut() else {
+                } = self.scope_stack.last_mut()
+                else {
                     return;
                 };
 
@@ -372,7 +371,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         }
     }
 
-    
     fn handle_ts_export_assignment(&mut self, assignment: &TSExportAssignment<'ast, A>) {
         self.patches.binary_search_insert((
             Span::new(assignment.span.start, assignment.expression.span().start),
@@ -380,19 +378,18 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         ));
     }
 
-    
     fn handle_export_specifier(&mut self, specifier: &ExportSpecifier<'ast>) {
         if specifier.export_kind.is_type() {
             self.patches.push(specifier.span);
         }
     }
-    
+
     fn handle_import_specifier(&mut self, specifier: &ImportSpecifier<'ast>) {
         if specifier.import_kind.is_type() {
             self.patches.push(specifier.span);
         }
     }
-    
+
     fn handle_ts_namespace_export_declaration(
         &mut self,
         decl: &TSNamespaceExportDeclaration<'ast>,
@@ -400,7 +397,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         // export as namespace Foo;
         self.patches.push(decl.span);
     }
-    
+
     fn handle_export_named_declaration(&mut self, decl: &ExportNamedDeclaration<'ast, A>) {
         if decl.export_kind.is_type() {
             self.patches.push_merging_tail(decl.span);
@@ -413,12 +410,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         {
             self.patches.push_merging_tail(decl.span);
         } else if matches!(exported_decl, Declaration::TSEnumDeclaration(_)) {
-            let current_enum_decl = self
-                .scope_stack
-                .last()
-                .current_enum_decl
-                .as_ref()
-                .unwrap();
+            let current_enum_decl = self.scope_stack.last().current_enum_decl.as_ref().unwrap();
             if current_enum_decl.is_secondary {
                 self.patches[current_enum_decl.index_of_patch_before_enum_name]
                     .span
@@ -427,7 +419,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         }
     }
 
-    
     fn handle_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'ast, A>) {
         let Some(last_patch) = self.patches.last() else {
             return;
@@ -437,25 +428,22 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         }
     }
 
-    
     fn handle_export_all_declaration(&mut self, decl: &ExportAllDeclaration<'ast, A>) {
         if decl.export_kind.is_type() {
             self.patches.push_merging_tail(decl.span);
         }
     }
-    
+
     fn handle_ts_class_implements(&mut self, implements: &TSClassImplements<'ast, A>) {
         self.patches.push_merging_tail(implements.span);
     }
 
-    
     fn handle_variable_declaration(&mut self, decl: &VariableDeclaration<'ast, A>) {
         if decl.declare {
             self.patches.push_merging_tail(decl.span);
         }
     }
 
-    
     fn handle_ts_interface_declaration(
         &mut self,
         interface_decl: &TSInterfaceDeclaration<'ast, A>,
@@ -501,8 +489,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             self.patches.push_merging_tail(decl.span);
             return;
         }
-        let Some(current_namespace_decl) = &self.scope_stack.last().current_namespace_decl
-        else {
+        let Some(current_namespace_decl) = &self.scope_stack.last().current_namespace_decl else {
             return;
         };
         self.patches[current_namespace_decl.index_of_patch_before_namespace_name]
@@ -580,8 +567,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     }
 
     fn handle_ts_enum_member_name(&mut self, member_name: &TSEnumMemberName<'ast, A>) {
-        let ScopeKind::Enum { member_names } = &mut self.scope_stack.last_mut().kind
-        else {
+        let ScopeKind::Enum { member_names } = &mut self.scope_stack.last_mut().kind else {
             if cfg!(debug_assertions) {
                 panic!("expect current scope to be Enum when TSEnumMemberName is encountered")
             }
@@ -685,7 +671,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         self.patches.push((span, replacement.into_bump_str()));
     }
 
-    
     fn handle_ts_enum_declaration(&mut self, enum_decl: &TSEnumDeclaration<'ast, A>) {
         if enum_decl.head.declare {
             self.patches.push_merging_tail(enum_decl.span);
@@ -700,7 +685,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         });
     }
 
-    
     fn handle_ts_import_equals_declaration(&mut self, decl: &TSImportEqualsDeclaration<'ast, A>) {
         if decl.import_kind.is_type() {
             self.patches.push_merging_tail(decl.span);
@@ -715,21 +699,19 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             },
         ));
     }
-    
+
     fn handle_import_declaration(&mut self, decl: &ImportDeclaration<'ast, A>) {
         if decl.import_kind.is_type() {
             self.patches.push_merging_tail(decl.span);
         }
     }
-    
+
     fn handle_ts_type_alias_declaration(&mut self, decl: &TSTypeAliasDeclaration<'ast, A>) {
         self.patches.push_merging_tail(decl.span);
     }
 
-    
     fn handle_function_body(&mut self, body: &FunctionBody<'ast, A>) {}
 
-    
     fn handle_function(&mut self, func: &Function<'ast, A>) {
         if func.declare || func.body.is_none() {
             self.patches.push_merging_tail(func.span);
@@ -766,7 +748,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         }
     }
 
-    
     fn handle_statement(&mut self, stmt: &Statement<'ast, A>) {
         let stmt_span = stmt.span();
         let scope = self.scope_stack.last_mut();
@@ -863,7 +844,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         };
     }
 
-    
     fn handle_call_expression(&mut self, call_expr: &CallExpression<'ast, A>) {
         if matches!(call_expr.callee, Expression::Super(_)) {
             if let ScopeKind::FunctionWithParamProps {
@@ -876,39 +856,37 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         }
     }
 
-    
     fn handle_ts_type_annotation(&mut self, it: &TSTypeAnnotation<'ast, A>) {
         self.patches.push_merging_tail(it.span);
     }
-    
+
     fn handle_ts_type_parameter_declaration(&mut self, it: &TSTypeParameterDeclaration<'ast, A>) {
         self.patches.push_merging_tail(it.span);
     }
-    
+
     fn handle_ts_type_parameter_instantiation(
         &mut self,
         it: &TSTypeParameterInstantiation<'ast, A>,
     ) {
         self.patches.push_merging_tail(it.span);
     }
-    
+
     fn handle_ts_as_expression(&mut self, it: &TSAsExpression<'ast, A>) {
         self.patches
             .push_merging_tail(it.expression.span().end..it.span.end);
     }
-    
+
     fn handle_ts_satisfies_expression(&mut self, it: &TSSatisfiesExpression<'ast, A>) {
         self.patches
             .push_merging_tail(it.expression.span().end..it.span.end);
     }
-    
+
     fn handle_class_modifiers(&mut self, modifiers: &ClassModifiers) {
         if modifiers.r#abstract {
             self.patches.push_merging_tail(modifiers.span);
         }
     }
 
-    
     fn handle_class_body(&mut self, class_body: &ClassBody<'ast, A>) {
         let Scope {
             kind:
@@ -941,7 +919,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         ));
     }
 
-
     fn handle_class(&mut self, it: &Class<'ast, A>) {
         if it.modifiers.is_some_and(|modifiers| modifiers.declare) {
             self.patches.push_merging_tail(it.span);
@@ -952,7 +929,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     fn handle_ts_this_parameter(&mut self, it: &TSThisParameter<'ast, A>) {
         self.patches.push_merging_tail(it.span);
     }
-    
+
     fn handle_ts_function_type(&mut self, ts_func_type: &TSFunctionType<'ast, A>) {
         // ignore param props in function types (`constructor(a: (public b) => void) {}`)
         if let ScopeKind::FunctionWithParamProps {
@@ -967,7 +944,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             }
         }
     }
-    
+
     fn handle_class_element_modifiers(&mut self, modifiers: &ClassElementModifiers) {
         if !(modifiers.r#abstract
             || modifiers.declare
@@ -1018,16 +995,14 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         }
     }
 
-    
     fn handle_ts_definite_mark(&mut self, mark: &TSDefiniteMark) {
         self.patches.push_merging_tail(mark.span);
     }
-    
+
     fn handle_ts_optional_mark(&mut self, mark: &TSOptionalMark) {
         self.patches.push_merging_tail(mark.span);
     }
 
-    
     fn handle_method_definition(&mut self, element: &MethodDefinition<'ast, A>) {
         if matches!(self.patches.last(), Some(last_patch) if last_patch.span == element.value.span() && last_patch.replacement.is_empty())
         {
@@ -1106,7 +1081,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             }
         };
     }
-    
+
     fn handle_property_definition(&mut self, element: &PropertyDefinition<'ast, A>) {
         if element
             .modifiers
@@ -1116,7 +1091,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             return;
         }
     }
-    
+
     fn handle_accessor_property(&mut self, element: &AccessorProperty<'ast, A>) {
         if element
             .modifiers
@@ -1125,12 +1100,11 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             self.patches.push_merging_tail(element.span);
         }
     }
-    
+
     fn handle_ts_index_signature(&mut self, element: &TSIndexSignature<'ast, A>) {
         self.patches.push_merging_tail(element.span);
     }
 
-    
     fn handle_object_property(&mut self, prop: &ObjectProperty<'ast, A>) {
         if prop.method {
             if let (Some(patch), Expression::FunctionExpression(function_value)) =
@@ -1144,7 +1118,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         // if prop.method && matches(&prop.value, Expression::
     }
 
-    
     fn handle_arrow_function_expression(&mut self, arrow_func: &ArrowFunctionExpression<'ast, A>) {
         /*
            `async
@@ -1152,8 +1125,14 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             to
            `async (
            ) =>`
+
+           `return
+           () =>`
+            to
+           `return (
+           ) =>`
         */
-        if let (true, Some(type_param)) = (arrow_func.r#async, &arrow_func.type_parameters) {
+        if let Some(type_param) = &arrow_func.type_parameters {
             let type_param_strip_patch_index = self
                 .patches
                 .binary_search_by_key(&type_param.span().start, |patch| patch.span.start)
@@ -1204,7 +1183,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     // `() => <Foo>{ foo: 1 }`, and
     // `return <{
     // }>{}`
-    
+
     fn handle_ts_type_assertion_annotation(
         &mut self,
         assertion_annotaion: &TSTypeAssertionAnnotation<'ast, A>,
@@ -1212,7 +1191,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         self.patches
             .push_merging_tail((assertion_annotaion.span, "("));
     }
-    
+
     fn handle_ts_type_assertion(&mut self, type_assertion: &TSTypeAssertion<'ast, A>) {
         self.patches.push(Patch {
             span: (type_assertion.span.end..type_assertion.span.end).into(),
@@ -1220,7 +1199,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         });
     }
 
-    
     fn handle_if_statement(&mut self, if_stmt: &IfStatement<'ast, A>) {
         if let (Some(alternate), Some(last_patch)) = (&if_stmt.alternate, self.patches.last_mut()) {
             if last_patch.span == alternate.span() && last_patch.replacement.is_empty() {
@@ -1249,33 +1227,31 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             possible_strip_patch_of_consequent.replacement = ";"
         }
     }
-    
+
     fn handle_do_while_statement(&mut self, stmt: &DoWhileStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
-    
+
     fn handle_while_statement(&mut self, stmt: &WhileStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
-    
+
     fn handle_for_statement(&mut self, stmt: &ForStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
-    
+
     fn handle_for_in_statement(&mut self, stmt: &ForInStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
-    
+
     fn handle_for_of_statement(&mut self, stmt: &ForOfStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
 
-    
     fn handle_formal_parameter_modifiers(&mut self, modifiers: &FormalParameterModifiers) {
         self.patches.push_merging_tail(modifiers.span);
     }
 
-    
     fn handle_formal_parameter(&mut self, param: &FormalParameter<'ast, A>) {
         let Some(modifiers) = &param.modifiers else {
             return;

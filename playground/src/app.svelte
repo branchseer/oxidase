@@ -77,6 +77,7 @@
   }
   .editor-container {
     flex: 1 1 0;
+    overflow: scroll;
   }
   :global(.editor) {
     width: 100%;

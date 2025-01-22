@@ -1,4 +1,7 @@
-use std::{cmp::min, ops::{Deref, DerefMut, Index, IndexMut}};
+use std::{
+    cmp::min,
+    ops::{Deref, DerefMut, Index, IndexMut},
+};
 
 use bumpalo::Bump;
 use oxc_allocator::{Allocator, Vec};
@@ -34,6 +37,7 @@ impl<'source, 'alloc> PatchBuilder<'source, 'alloc> {
     pub fn len(&self) -> usize {
         self.patches.len()
     }
+
     pub fn push(&mut self, patch: impl Into<Patch<'alloc>>) {
         let patch = patch.into();
         if cfg!(debug_assertions) {
@@ -46,7 +50,10 @@ impl<'source, 'alloc> PatchBuilder<'source, 'alloc> {
 
     pub fn push_checking_line_terminator(&mut self, patch: impl Into<Patch<'alloc>>) {
         let patch = patch.into();
-        let end = min(patch.span.end as usize, patch.span.start as usize + patch.replacement.len());
+        let end = min(
+            patch.span.end as usize,
+            patch.span.start as usize + patch.replacement.len(),
+        );
         let source_to_replace = &self.source[patch.span.start as usize..end];
         if contains_line_terminators(source_to_replace) {
             self.push((patch.span, ""));
@@ -71,7 +78,9 @@ impl<'source, 'alloc> PatchBuilder<'source, 'alloc> {
 
     pub fn binary_search_insert(&mut self, patch: impl Into<Patch<'alloc>>) {
         let patch = patch.into();
-        let insert_pos = self.patches.partition_point(|p| p.span.end <= patch.span.start);
+        let insert_pos = self
+            .patches
+            .partition_point(|p| p.span.end <= patch.span.start);
 
         if cfg!(debug_assertions) {
             if let Some(patch_after) = self.patches.get(insert_pos) {
@@ -112,4 +121,3 @@ impl<'source, 'alloc> PatchBuilder<'source, 'alloc> {
         self.patches.insert(index, patch.into());
     }
 }
-

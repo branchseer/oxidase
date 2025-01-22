@@ -5,6 +5,20 @@ pnpm = "10.0.0"
 "cargo:wasm-bindgen-cli" = "0.2.100"
 "cargo:wasm-pack" = "0.13.1"
 
+[tasks.debug]
+run = "cargo run --bin debug --"
+
+[tasks.e2e]
+run = "cargo run -p oxidase_e2e --profile e2e --"
+
+[tasks.'wasm:build']
+dir ="{{ config_root }}/crates/oxidase_wasm"
+run = "wasm-pack build --release --no-pack --target bundler --out-dir npm/wasm_esm && wasm-pack build --release --no-pack --target nodejs --out-dir npm/wasm_node"
+
+[tasks.'wasm:test']
+dir ="{{ config_root }}/crates/oxidase_wasm/test"
+run = "node --test node.mjs"
+
 [tasks.submodules]
 run = [
     "mise clone-submodule crates/e2e/fixture/ecosystem/TypeScript https://github.com/microsoft/TypeScript 1c4083f4edc71cb1744a62013732e3c95d05a035",

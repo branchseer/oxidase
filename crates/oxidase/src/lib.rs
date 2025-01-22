@@ -61,8 +61,6 @@ pub fn transpile_with_options<A: AstAllocator, S: StringBuf>(
     let handler = parser_ret.handler;
     debug_assert_eq!(handler.scope_len(), 0);
 
-    unsafe { println!("{}", allocator.iter_allocated_chunks_raw().map(|(_, len)| len).sum::<usize>()) }; 
-
     let patches = handler.into_patches();
 
     unsafe { apply_patches(&patches, source) };

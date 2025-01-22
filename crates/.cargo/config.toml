@@ -1,2 +1,0 @@
-[alias]
-e2e = "run -p oxidase_e2e --profile e2e --"
