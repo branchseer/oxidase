@@ -1,12 +1,12 @@
-import { assertEquals } from "@std/assert";
-import { describe, it } from "@std/testing/bdd";
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
 import { processTs } from "./index.ts";
 
 describe("processTs", () => {
     it('should format and transpile ts', () => {
         const result = processTs("class A { @foo a(): string {} }", false);
-        assertEquals(result?.ts, "class A { @foo a(): string {} }")
-        assertEquals(result?.js, `class A {
+        assert.equal(result?.ts, "class A { @foo a(): string {} }")
+        assert.equal(result?.js, `class A {
     @foo
     a() { }
 }
@@ -15,11 +15,11 @@ describe("processTs", () => {
 
     it("should return null when there's a syntax error", () => {
         const result = processTs("function a() {", false);
-        assertEquals(result, null);
+        assert.equal(result, null);
     });
     it("should preserve module statements", () => {
         const result = processTs("import a from 'a'; import a = require('a'); export = 'b'; export const b = 'b'", false);
-        assertEquals(result?.js, `import a from 'a';
+        assert.equal(result?.js, `import a from 'a';
 const a = require("a");
 module.exports = 'b';
 export const b = 'b';
@@ -28,29 +28,33 @@ export const b = 'b';
 
     it("should detect script type", () => {
         const result = processTs("console.log(1)", false);
-        assertEquals(result?.kind, 'script');
+        assert.equal(result?.kind, 'script');
     })
     it("should detect module type", () => {
         const result = processTs("export const a = 1", false);
-        assertEquals(result?.kind, 'module');
+        assert.equal(result?.kind, 'module');
     })
     it("should remove enums and namespaces", () => {
         const result = processTs("'你好'\nenum a {}\nnamespace b{}", true);
-        assertEquals(result?.ts, "'你好'\n;\n;");
+        assert.equal(result?.ts, "'你好';;");
     })
     it("should preserve declared enums and namespaces", () => {
         const result = processTs("declare enum a {}\ndeclare namespace b{}", true);
-        assertEquals(result?.ts, "declare enum a {}\ndeclare namespace b{}");
+        assert.equal(result?.ts, "declare enum a {}\ndeclare namespace b{}");
+    })
+    it("should be able to strip parameters with modifiers", () => {
+        const result = processTs("class A { constructor(private a, b) {} }", true, true);
+        assert.equal(result?.ts, "class A { constructor( a, b) {} }");
     })
 });
 
 // describe("formatJs", () => {
 //     it("should format module js", () => {
 //         const result = formatJs("await 1+1");
-//         assertEquals(result, "await 1 + 1;\n");
+//         assert.equal(result, "await 1 + 1;\n");
 //     })
 //     it("should reject invalid js syntax", () => {
 //         const result = formatJs("let a: string");
-//         assertEquals(result, null);
+//         assert.equal(result, null);
 //     })
 // });

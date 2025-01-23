@@ -16,8 +16,8 @@ const compilerOptions: ts.CompilerOptions = {
 
 export function processTs(
 	sourceCode: string,
-	stripEnumAndNamespace: boolean,
-	stripParametersWithModifiers: boolean,
+	stripEnumAndNamespace?: boolean,
+	stripParametersWithModifiers?: boolean,
 ): {
 	ts: string;
 	js: string;
@@ -42,9 +42,10 @@ export function processTs(
 	}
 
 
-	// ## workarounds for inconsitent behaviors between tsc and oxidase
 	function shouldRemove(node: ts.Node): boolean {
-		// ## `get a();` / `constructor();`
+		//  workarounds for inconsitent behaviors between tsc and oxidase
+
+		// `get a();` / `constructor();`
 		// - tsc generates body for them
 		// - oxidase strips them (TODO: to be consistent with tsc)
 		if (ts.isAccessor(node) && (node.body === undefined)) {
@@ -72,32 +73,32 @@ export function processTs(
 		)) {
 			return true;
 		}
-
-		if (stripParametersWithModifiers && ts.isParameter(node)) {
-			return node.modifiers !== undefined && node.modifiers.length > 0
-		}
 		return false;
 	}
 
-	const spansToRemove: [number, number][] = [];
+	const patches: [number, number, string][] = [];
 	function visit(node: ts.Node) {
 		if (shouldRemove(node)) {
-			spansToRemove.push([node.getStart(), node.getEnd()]);
-		} else {
-			ts.forEachChild(node, visit);
+			patches.push([node.pos, node.end, ';']);
+			return;
 		}
+		if (stripParametersWithModifiers && ts.isParameter(node) && node.modifiers && node.modifiers.length > 0) {
+			patches.push([node.modifiers.pos, node.modifiers.end, '']);
+		}
+		ts.forEachChild(node, visit);
 	}
 	visit(sourceFile);
 
 	let start = 0;
 	let codeSegments: string[] = [];
-	if (spansToRemove.length > 0) {
-		for (const span of spansToRemove) {
-			codeSegments.push(sourceCode.slice(start, span[0]));
-			start = span[1];
+	if (patches.length > 0) {
+		for (const [patchStart, patchEnd, replacement] of patches) {
+			codeSegments.push(sourceCode.slice(start, patchStart));
+			codeSegments.push(replacement);
+			start = patchEnd;
 		}
 		codeSegments.push(sourceCode.slice(start));
-		sourceCode = codeSegments.join(';');
+		sourceCode = codeSegments.join('');
 	}
 
 	const { outputText } = ts.transpileModule(sourceCode, { compilerOptions });

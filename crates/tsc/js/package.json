@@ -3,9 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "description": "",
-  "main": "index.js",
+  "type": "module",
   "license": "MIT",
+  "scripts": {
+    "test": "node --experimental-transform-types --test test.ts"
+  },
   "devDependencies": {
+    "@types/node": "^22.10.9",
     "esbuild": "^0.24.2"
   },
   "dependencies": {

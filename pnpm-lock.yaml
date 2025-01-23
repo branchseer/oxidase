@@ -53,6 +53,9 @@ importers:
         specifier: ^0.26.0
         version: 0.26.0
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.9
+        version: 22.10.9
       esbuild:
         specifier: ^0.24.2
         version: 0.24.2
@@ -70,11 +73,11 @@ importers:
         version: 1.4.1(codemirror@6.0.1)(svelte@5.19.1)
       vite-plugin-wasm:
         specifier: ^3.4.1
-        version: 3.4.1(vite@6.0.11(@types/node@22.10.7))
+        version: 3.4.1(vite@6.0.11(@types/node@22.10.9))
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: 'catalog:'
-        version: 5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.7))
+        version: 5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.9))
       '@tsconfig/svelte':
         specifier: 'catalog:'
         version: 5.0.4
@@ -92,7 +95,7 @@ importers:
         version: 5.6.3
       vite:
         specifier: 'catalog:'
-        version: 6.0.11(@types/node@22.10.7)
+        version: 6.0.11(@types/node@22.10.9)
 
 packages:
 
@@ -449,6 +452,9 @@ packages:
 
   '@types/node@22.10.7':
     resolution: {integrity: sha512-V09KvXxFiutGp6B7XkpaDXlNadZxrzajcY50EuoLIpQ6WWYCSvf19lVIazzfIzQvhUN2HjX12spLojTnhuKlGg==}
+
+  '@types/node@22.10.9':
+    resolution: {integrity: sha512-Ir6hwgsKyNESl/gLOcEz3krR4CBGgliDqBQ2ma4wIhEx0w+xnoeTq3tdrNw15kU3SxogDjOgv9sqdtLW8mIHaw==}
 
   acorn-typescript@1.4.13:
     resolution: {integrity: sha512-xsc9Xv0xlVfwp2o7sQ+GCQ1PgbkdcpWdTzrwXxO3xDMTAywVS3oXVOcOHuRjAPkS4P9b+yc/qNF15460v+jp4Q==}
@@ -972,25 +978,25 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.31.0':
     optional: true
 
-  '@sveltejs/vite-plugin-svelte-inspector@4.0.1(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.7)))(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.7))':
+  '@sveltejs/vite-plugin-svelte-inspector@4.0.1(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.9)))(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.9))':
     dependencies:
-      '@sveltejs/vite-plugin-svelte': 5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.7))
+      '@sveltejs/vite-plugin-svelte': 5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.9))
       debug: 4.4.0
       svelte: 5.19.1
-      vite: 6.0.11(@types/node@22.10.7)
+      vite: 6.0.11(@types/node@22.10.9)
     transitivePeerDependencies:
       - supports-color
 
-  '@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.7))':
+  '@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.9))':
     dependencies:
-      '@sveltejs/vite-plugin-svelte-inspector': 4.0.1(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.7)))(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.7))
+      '@sveltejs/vite-plugin-svelte-inspector': 4.0.1(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.9)))(svelte@5.19.1)(vite@6.0.11(@types/node@22.10.9))
       debug: 4.4.0
       deepmerge: 4.3.1
       kleur: 4.1.5
       magic-string: 0.30.17
       svelte: 5.19.1
-      vite: 6.0.11(@types/node@22.10.7)
-      vitefu: 1.0.5(vite@6.0.11(@types/node@22.10.7))
+      vite: 6.0.11(@types/node@22.10.9)
+      vitefu: 1.0.5(vite@6.0.11(@types/node@22.10.9))
     transitivePeerDependencies:
       - supports-color
 
@@ -1023,6 +1029,10 @@ snapshots:
     dependencies:
       undici-types: 6.20.0
     optional: true
+
+  '@types/node@22.10.9':
+    dependencies:
+      undici-types: 6.20.0
 
   acorn-typescript@1.4.13(acorn@8.14.0):
     dependencies:
@@ -1259,25 +1269,24 @@ snapshots:
 
   typescript@5.6.3: {}
 
-  undici-types@6.20.0:
-    optional: true
+  undici-types@6.20.0: {}
 
-  vite-plugin-wasm@3.4.1(vite@6.0.11(@types/node@22.10.7)):
+  vite-plugin-wasm@3.4.1(vite@6.0.11(@types/node@22.10.9)):
     dependencies:
-      vite: 6.0.11(@types/node@22.10.7)
+      vite: 6.0.11(@types/node@22.10.9)
 
-  vite@6.0.11(@types/node@22.10.7):
+  vite@6.0.11(@types/node@22.10.9):
     dependencies:
       esbuild: 0.24.2
       postcss: 8.5.1
       rollup: 4.31.0
     optionalDependencies:
-      '@types/node': 22.10.7
+      '@types/node': 22.10.9
       fsevents: 2.3.3
 
-  vitefu@1.0.5(vite@6.0.11(@types/node@22.10.7)):
+  vitefu@1.0.5(vite@6.0.11(@types/node@22.10.9)):
     optionalDependencies:
-      vite: 6.0.11(@types/node@22.10.7)
+      vite: 6.0.11(@types/node@22.10.9)
 
   w3c-keyname@2.2.8: {}
 

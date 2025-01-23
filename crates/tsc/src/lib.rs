@@ -2,7 +2,7 @@ use v8_utils::with_isolate;
 
 pub mod v8_utils;
 
-static TSC_JS_SOURCE: &str = include_str!(concat!(env!("OUT_DIR"), "/dist.js"));
+static TSC_JS_SOURCE: &str = include_str!("../dist.js");
 
 pub struct Tsc {
     context: v8::Global<v8::Context>,
@@ -66,6 +66,7 @@ impl Tsc {
         &mut self,
         source: &str,
         strip_enum_and_namespace: bool,
+        strip_parameters_with_modifiers: bool,
     ) -> Option<TranspileOutput> {
         with_isolate(|isolate| {
             let process_ts_func = self.process_ts_func.open(isolate);
@@ -75,11 +76,17 @@ impl Tsc {
 
             let source = v8::String::new(handle_scope, source)?;
             let strip_enum_and_namespace = v8::Boolean::new(handle_scope, strip_enum_and_namespace);
+            let strip_parameters_with_modifiers =
+                v8::Boolean::new(handle_scope, strip_parameters_with_modifiers);
 
             let result = process_ts_func.call(
                 handle_scope,
                 global.cast(),
-                &[source.cast(), strip_enum_and_namespace.cast()],
+                &[
+                    source.cast(),
+                    strip_enum_and_namespace.cast(),
+                    strip_parameters_with_modifiers.cast(),
+                ],
             )?;
             serde_v8::from_v8::<Option<TranspileOutput>>(handle_scope, result).ok()?
         })
