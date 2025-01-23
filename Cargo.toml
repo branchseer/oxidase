@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/oxidase", "crates/e2e", "crates/tsc", "crates/bench", "crates/oxidase_wasm"]
+members = [ "crates/oxidase", "crates/e2e", "crates/tsc", "crates/bench", "packages/wasm/bindings"]
 resolver = "2"
 
 [workspace.dependencies]

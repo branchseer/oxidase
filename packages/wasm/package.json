@@ -1,0 +1,21 @@
+{
+  "name": "oxidase",
+  "version": "0.0.1",
+  "description": "Transpiling TypeScript as fast as parsing",
+  "author": "branchseer",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "node": "./wasm_node/oxidase_wasm_bindings.js",
+      "default": "./wasm_esm/oxidase_wasm_bindings.js"
+    },
+    "./register": {
+      "node": "./loader/register.mjs"
+    }
+  },
+  "node": ">=18",
+  "keywords": [
+    "TypeScript",
+    "transpiler"
+  ]
+}

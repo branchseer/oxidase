@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    // oxidase must be linked inside node_modules for the loader (node --import oxidase/register) to work
+    "oxidase": "workspace:*", 
+    "zx": "catalog:"
+  }
+}

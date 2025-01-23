@@ -6,6 +6,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "build": "node build.mjs",
     "test": "node --experimental-transform-types --test test.ts"
   },
   "devDependencies": {

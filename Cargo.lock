@@ -1813,13 +1813,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxidase_wasm"
+name = "oxidase_wasm_bindings"
 version = "0.0.0"
 dependencies = [
  "console_error_panic_hook",
  "oxidase",
  "serde",
- "talc",
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]
@@ -3566,15 +3565,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "talc"
-version = "4.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fcad3be1cfe36eb7d716a04791eba36a197da9d9b6ea1e28e64ac569da3701d"
-dependencies = [
- "lock_api",
 ]
 
 [[package]]

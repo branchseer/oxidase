@@ -101,14 +101,14 @@ mod tests {
     fn invalid_syntax() {
         let mut tsc = Tsc::new();
 
-        assert_eq!(tsc.process_ts("let a: string =", true), None);
+        assert_eq!(tsc.process_ts("let a: string =", true, false), None);
     }
 
     #[test]
     fn script_kind() {
         let mut tsc = Tsc::new();
         assert_eq!(
-            tsc.process_ts("let a: string = 1", true).unwrap().kind,
+            tsc.process_ts("let a: string = 1", true, false).unwrap().kind,
             SourceKind::Script
         );
     }
@@ -116,7 +116,7 @@ mod tests {
     fn module_kind() {
         let mut tsc = Tsc::new();
         assert_eq!(
-            tsc.process_ts("export let a: string = 1", true)
+            tsc.process_ts("export let a: string = 1", true, false)
                 .unwrap()
                 .kind,
             SourceKind::Module

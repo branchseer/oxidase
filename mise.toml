@@ -11,12 +11,12 @@ run = "cargo run --bin debug --"
 run = "cargo run -p oxidase_e2e --profile e2e --"
 
 [tasks.'wasm:build']
-dir ="{{ config_root }}/crates/oxidase_wasm"
-run = "wasm-pack build --release --no-pack --target bundler --out-dir npm/wasm_esm && wasm-pack build --release --no-pack --target nodejs --out-dir npm/wasm_node"
+dir ="{{ config_root }}/packages/wasm/bindings"
+run = "wasm-pack build --release --no-pack --target bundler --out-dir ../wasm_esm && wasm-pack build --release --no-pack --target nodejs --out-dir ../wasm_node"
 
 [tasks.'wasm:test']
-dir ="{{ config_root }}/crates/oxidase_wasm/test"
-run = "node --test node.mjs"
+dir ="{{ config_root }}/packages/wasm/test"
+run = "node --test test.mjs"
 
 [tasks.submodules]
 run = [

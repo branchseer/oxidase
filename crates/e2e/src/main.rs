@@ -287,10 +287,10 @@ fn main() {
                 let tsc = tsc.get_or_insert_with(|| Tsc::new());
 
                 let Some(tsc_output) = (match test_type {
-                    TestType::Exec => tsc.process_ts(&source, false),
+                    TestType::Exec => tsc.process_ts(&source, false, false),
                     TestType::Transpile => {
                         baseline_cache.get_or_insert_with(path, file_entry.mtime, || {
-                            tsc.process_ts(&source, true)
+                            tsc.process_ts(&source, true, false)
                         })
                     }
                 }) else {
