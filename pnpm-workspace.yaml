@@ -1,6 +1,7 @@
 packages:
   - crates/oxidase_wasm/npm
   - crates/oxidase_wasm/test
+  - crates/tsc/js
   - playground
 catalog:
   "@codemirror/lang-javascript": ^6.2.2

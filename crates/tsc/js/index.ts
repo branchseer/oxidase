@@ -17,6 +17,7 @@ const compilerOptions: ts.CompilerOptions = {
 export function processTs(
 	sourceCode: string,
 	stripEnumAndNamespace: boolean,
+	stripParametersWithModifiers: boolean,
 ): {
 	ts: string;
 	js: string;
@@ -70,6 +71,10 @@ export function processTs(
 			(ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Ambient) === 0
 		)) {
 			return true;
+		}
+
+		if (stripParametersWithModifiers && ts.isParameter(node)) {
+			return node.modifiers !== undefined && node.modifiers.length > 0
 		}
 		return false;
 	}
