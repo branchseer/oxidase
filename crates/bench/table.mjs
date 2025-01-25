@@ -14,27 +14,26 @@
 import fs from 'node:fs'
 import { markdownTable }  from 'markdown-table'
 
+async function readdir(dir) {
+  return (await fs.promises.readdir(dir)).filter(name => !name.startsWith('.'));
+}
+
 async function readData() {
   const data = {};
   const dir = "../../target/criterion";
 
-  const groups = await fs.promises.readdir(dir);
+  const groups = await readdir(dir);
   for (const group of groups) {
     data[group] ||= {};
 
-    const benches = await fs.promises.readdir(`${dir}/${group}`);
+    const benches = await readdir(`${dir}/${group}`);
     for (const bench of benches) {
-      data[group][bench] ||= {};
-
-      const measurements = await fs.promises.readdir(`${dir}/${group}/${bench}`);
-      for (const measurement of measurements) {
-        const json = await import(`${dir}/${group}/${bench}/${measurement}/new/estimates.json`, { with: { type: "json" } });
+        const json = await import(`${dir}/${group}/${bench}/new/estimates.json`, { with: { type: "json" } });
         const duration_ms = json.default.mean.point_estimate / 1_000_000;
-        data[group][bench][measurement] ||= { duration_ms };
-      }
+        data[group][bench] ||= { duration_ms };
+      
     }
   }
-
   return data
 }
 /**
@@ -104,6 +103,7 @@ async function main(argv) {
         const rows = Object.keys(data[group][columns[0]]);
         out += `### ${group}\n`;
         const table = [["", ...columns]];
+
         for (const row of rows) {
           const column_numbers = columns.map((column) => data[group][column][row].duration_ms);
           const minimum = Math.min(...column_numbers);

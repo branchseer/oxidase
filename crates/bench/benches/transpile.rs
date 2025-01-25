@@ -16,7 +16,7 @@ fn bench<B: Benchee>(g: &mut BenchmarkGroup<'_, WallTime>, source: &str) {
     });
 }
 
-fn transformer_benchmark(c: &mut Criterion) {
+fn transpile_benchmark(c: &mut Criterion) {
     let filenames = ["checker.ts", "render.ts"];
     for filename in filenames {
         let path = Path::new("files").join(filename);
@@ -25,7 +25,7 @@ fn transformer_benchmark(c: &mut Criterion) {
         for without_codegen in [false, true] {
             let mut group_name = filename.to_string();
             if without_codegen {
-                group_name.push_str(" without codegen");
+                group_name.insert_str(0, "no_codegen_");
             }
 
             let mut g = c.benchmark_group(&group_name);
@@ -45,5 +45,5 @@ fn transformer_benchmark(c: &mut Criterion) {
     }
 }
 
-criterion_group!(transformer, transformer_benchmark);
-criterion_main!(transformer);
+criterion_group!(transpile, transpile_benchmark);
+criterion_main!(transpile);
