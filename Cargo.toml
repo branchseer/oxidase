@@ -48,7 +48,7 @@ swc_ecma_utils = "6.0.0"
 swc_ecma_visit = "5.0.0"
 thiserror = "1.0.63"
 v8 = "130.0.2"
-criterion = "0.5.1"
+criterion2  = { version = "2.0.0", default-features = false }
 oxc_sourcemap = "1.0.6"
 nonmax = "0.5.5"
 

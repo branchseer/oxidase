@@ -1,8 +1,6 @@
 {
-  "name": "tsc_js",
-  "version": "1.0.0",
+  "name": "oxidase_tsc",
   "private": true,
-  "description": "",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -10,10 +8,10 @@
     "test": "node --experimental-transform-types --test test.ts"
   },
   "devDependencies": {
-    "@types/node": "^22.10.9",
-    "esbuild": "^0.24.2"
+    "@types/node": "catalog:",
+    "esbuild": "catalog:"
   },
   "dependencies": {
-    "@ts-morph/bootstrap": "^0.26.0"
+    "@ts-morph/bootstrap": "catalog:"
   }
 }

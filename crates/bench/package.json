@@ -1,0 +1,14 @@
+{
+  "name": "oxidase_bench",
+  "private": true,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "markdown-table": "catalog:",
+    "oxidase_tsc": "workspace:",
+    "tsx": "catalog:",
+    "zx": "catalog:"
+  }
+}

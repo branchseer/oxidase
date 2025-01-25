@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-criterion = { workspace = true }
+criterion2 = { workspace = true }
 oxidase = { workspace = true, features = [ "internal-bench" ]}
 oxidase_tsc = { workspace = true }
 swc_fast_ts_strip = { workspace = true }
