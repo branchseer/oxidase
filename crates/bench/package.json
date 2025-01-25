@@ -2,7 +2,7 @@
   "name": "oxidase_bench",
   "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "compare-memory": "tsx memory.mts"
   },
   "license": "MIT",
   "dependencies": {
@@ -10,5 +10,8 @@
     "oxidase_tsc": "workspace:",
     "tsx": "catalog:",
     "zx": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
   }
 }

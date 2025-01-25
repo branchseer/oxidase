@@ -71,6 +71,10 @@ importers:
       zx:
         specifier: 'catalog:'
         version: 8.3.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.10.9
 
   crates/tsc/js:
     dependencies:
