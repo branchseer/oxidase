@@ -9,12 +9,14 @@ oxidase = { workspace = true, features = [ "internal-bench" ]}
 oxidase_tsc = { workspace = true }
 swc_fast_ts_strip = { workspace = true }
 swc_common = { workspace = true }
+swc_ecma_parser = { workspace = true }
 swc = { workspace = true }
 rayon = { workspace = true }
 oxc_parser = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
 oxc_span = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
 oxc_allocator = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
 oxc_ast = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
+oxc_diagnostics = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
 
 [[bench]]
 name = "transpile"

@@ -1764,6 +1764,7 @@ dependencies = [
  "criterion",
  "oxc_allocator 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxc_ast 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
+ "oxc_diagnostics 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxc_parser 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxc_span 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxidase",
@@ -1771,6 +1772,7 @@ dependencies = [
  "rayon",
  "swc",
  "swc_common",
+ "swc_ecma_parser",
  "swc_fast_ts_strip",
 ]
 

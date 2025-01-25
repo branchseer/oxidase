@@ -1,138 +1,49 @@
-mod strip_visit;
+use std::path::Path;
 
-use std::{
-    fs::read_to_string,
-    hint::black_box,
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
-};
+use criterion::{measurement::WallTime, *};
+use oxidase_bench::{remove_codegen, Benchee, OxcParser, Oxidase, SwcFastTsStrip};
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use oxidase::{Allocator, SourceType};
-use oxidase_tsc::Tsc;
-use swc::try_with_handler;
-
-fn oxidase(
-    allocator: &Allocator,
-    source: &mut String,
-    allocate_ast: bool,
-    allow_skip_ambient: bool,
-) {
-    let ret = if allocate_ast {
-        oxidase::transpile_with_options(
-            allocator,
-            allocator,
-            allow_skip_ambient,
-            SourceType::ts(),
-            source,
-        )
-    } else {
-        oxidase::transpile_with_options(
-            allocator,
-            &oxidase::VoidAllocator::new(),
-            allow_skip_ambient,
-            SourceType::ts(),
-            source,
-        )
-    };
-    assert_eq!(ret.parser_panicked, false);
-    assert!(ret.parser_errors.is_empty());
-}
-
-// fn oxidase_allocating_ast(allocator: &Allocator, source: &mut String<'_>) {
-//     black_box({
-//         let ret = oxidase::transpile_allocated(allocator, SourceType::ts(), source);
-//         assert_eq!(ret.parser_panicked, false);
-//         assert!(ret.parser_errors.is_empty());
-//         source
-//     });
-// }
-// TypeScript/src/compiler/checker.ts
-pub fn criterion_benchmark(c: &mut Criterion) {
-    let fixture_ecosystem_dir: PathBuf =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../e2e/fixture/ecosystem");
-    let mut tsc = Tsc::new();
-
-    let mut group = c.benchmark_group("Transpile");
-    for (param_name, input_path) in [("parser.ts", "TypeScript/src/compiler/checker.ts")] {
-        let mut allocator = oxidase::Allocator::default();
-        let source = read_to_string(fixture_ecosystem_dir.join(input_path)).unwrap();
-        let source = tsc.process_ts(&source, true).unwrap().ts;
-
-        group.bench_with_input(
-            BenchmarkId::new("oxidase", param_name),
-            source.as_str(),
-            |b, input| {
-                b.iter_custom(|iters| {
-                    let mut elapsed = Duration::ZERO;
-                    for _ in 0..iters {
-                        let mut source = String::from(input);
-                        let start = Instant::now();
-                        oxidase(&allocator, &mut source, false, true);
-                        black_box(source);
-                        allocator.reset();
-                        elapsed += start.elapsed();
-                    }
-                    elapsed
-                });
+fn bench<B: Benchee>(g: &mut BenchmarkGroup<'_, WallTime>, source: &str) {
+    let mut benchee = B::default();
+    g.bench_function(B::NAME, |b| {
+        b.iter_batched(
+            || source.to_string(),
+            |mut source| {
+                benchee.run(&mut source)
             },
-        );
-
-        // group.bench_with_input(
-        //     BenchmarkId::new("oxidase disable allow_skip_ambient", param_name),
-        //     source.as_str(),
-        //     |b, input| {
-        //         b.iter_custom(|iters| {
-        //             let mut elapsed = Duration::ZERO;
-        //             for _ in 0..iters {
-        //                 let mut source = String::from(input);
-        //                 let start = Instant::now();
-        //                 oxidase(&allocator, &mut source, true, false);
-        //                 black_box(source);
-        //                 allocator.reset();
-        //                 elapsed += start.elapsed();
-        //             }
-        //             elapsed
-        //         });
-        //     },
-        // );
-
-        // group.bench_with_input(
-        //     BenchmarkId::new("swc_fast_ts_strip", param_name),
-        //     source.as_str(),
-        //     |b, input| {
-        //         b.iter_custom(|iters| {
-        //             let mut elapsed = Duration::ZERO;
-
-        //             swc_common::GLOBALS.set(&Default::default(), || {
-        //                 for _ in 0..iters {
-        //                     let cm = Arc::<swc_common::SourceMap>::default();
-        //                     try_with_handler(cm.clone(), Default::default(), |handler| {
-        //                         let cm: Arc<swc_common::SourceMap> = Default::default();
-        //                         let input = input.to_owned();
-        //                         let start = Instant::now();
-        //                         let output = swc_fast_ts_strip::operate(
-        //                             &cm,
-        //                             handler,
-        //                             input,
-        //                             swc_fast_ts_strip::Options::default(),
-        //                         )
-        //                         .unwrap();
-        //                         elapsed += start.elapsed();
-        //                         drop(black_box(output));
-        //                         Ok(())
-        //                     })
-        //                     .unwrap();
-        //                 }
-        //             });
-
-        //             elapsed
-        //         })
-        //     },
-        // );
-    }
-    group.finish();
+            BatchSize::SmallInput
+        )
+    });
 }
 
-criterion_group!(benches, criterion_benchmark);
-criterion_main!(benches);
+fn transformer_benchmark(c: &mut Criterion) {
+    let filenames = ["checker.ts", "render.ts"];
+    for filename in filenames {
+        let path = Path::new("files").join(filename);
+        let source = std::fs::read_to_string(&path).unwrap();
+
+        for without_codegen in [false, true] {
+            let mut group_name = filename.to_string();
+            if without_codegen {
+                group_name.push_str(" without codegen");
+            }
+
+            let mut g = c.benchmark_group(&group_name);
+            let source = if without_codegen {
+                remove_codegen(&source)
+            } else {
+                source.clone()
+            };
+
+            bench::<Oxidase>(&mut g, &source);
+            bench::<OxcParser>(&mut g, &source);
+            if without_codegen {
+                bench::<SwcFastTsStrip>(&mut g, &source);
+            }
+            g.finish();
+        }
+    }
+}
+
+criterion_group!(transformer, transformer_benchmark);
+criterion_main!(transformer);

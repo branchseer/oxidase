@@ -87,27 +87,39 @@ struct Scope<'alloc> {
 }
 
 #[derive(Debug)]
+struct ClassScope<'alloc> {
+    current_element_first_modifier_patch_index: Option<usize>,
+    parameter_prop_id_spans_in_first_constructor: Vec<'alloc, Span>,
+    parameter_prop_id_spans: Vec<'alloc, Span>,
+    parameter_prop_init_insert_start: Option<u32>,
+}
+
+#[derive(Debug)]
+struct FunctionWithParamPropsScope<'alloc> {
+    parameter_prop_id_spans: Vec<'alloc, Span>,
+    super_call_stmt_end: Option<u32>,
+    last_super_call_expr_span: Option<Span>,
+    prologue_scan_state: PrologueScanState,
+}
+
+#[derive(Debug)]
+struct EnumScope<'alloc> {
+    member_names: Vec<'alloc, EnumName<'alloc>>,
+}
+
+#[derive(Debug)]
+struct NamespaceScope<'alloc> {
+    current_stmt_binding_identifiers: Vec<'alloc, &'alloc str>,
+    exported_identifiers: Vec<'alloc, &'alloc str>,
+}
+
+#[derive(Debug)]
 enum ScopeKind<'alloc> {
     Other,
-    Class {
-        current_element_first_modifier_patch_index: Option<usize>,
-        parameter_prop_id_spans_in_first_constructor: Vec<'alloc, Span>,
-        parameter_prop_id_spans: Vec<'alloc, Span>,
-        parameter_prop_init_insert_start: Option<u32>,
-    },
-    FunctionWithParamProps {
-        parameter_prop_id_spans: Vec<'alloc, Span>,
-        super_call_stmt_end: Option<u32>,
-        last_super_call_expr_span: Option<Span>,
-        prologue_scan_state: PrologueScanState,
-    },
-    Enum {
-        member_names: Vec<'alloc, EnumName<'alloc>>,
-    },
-    Namespace {
-        current_stmt_binding_identifiers: Vec<'alloc, &'alloc str>,
-        exported_identifiers: Vec<'alloc, &'alloc str>,
-    },
+    Class(ClassScope<'alloc>),
+    FunctionWithParamProps(FunctionWithParamPropsScope<'alloc>),
+    Enum(EnumScope<'alloc>),
+    Namespace(NamespaceScope<'alloc>),
 }
 
 #[derive(Debug)]
@@ -172,10 +184,10 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
     // If the prefix of a class element is stripped, insert a ";" there;
     // `readonly ['a'] = 1` -> `; ['a'] = 1`
     fn class_element_prefix_patch_asi(&mut self, element_start: u32) {
-        let ScopeKind::Class {
+        let ScopeKind::Class(ClassScope {
             current_element_first_modifier_patch_index,
             ..
-        } = &mut self.scope_stack.last_mut().kind
+        }) = &mut self.scope_stack.last_mut().kind
         else {
             if cfg!(test) {
                 unreachable!();
@@ -248,6 +260,116 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
             patch: current_stmt_patch,
         });
     }
+
+    fn handle_property_paramemter(&mut self, param: &FormalParameter<'_, impl AstAllocator>) {
+        let param_id_span = match &param.pattern.kind {
+            BindingPatternKind::BindingIdentifier(param_id) => {
+                let mut param_id_span = param_id.span();
+
+                if let Some(optional_mark) = &param.pattern.optional {
+                    param_id_span.end = optional_mark.span.start;
+                } else if let Some(type_annotation) = &param.pattern.type_annotation {
+                    param_id_span.end = type_annotation.span().start;
+                }
+                param_id_span
+            }
+            BindingPatternKind::AssignmentPattern(assign_pat) => {
+                // public ... = 1
+                let start = assign_pat.span().start;
+
+                if matches!(self.source_bytes()[start as usize], b'{' | b'[') {
+                    // public {a} = {}
+                    return;
+                }
+                let mut end = start;
+                while end <= assign_pat.span().end {
+                    if matches!(
+                        self.source_bytes()[end as usize],
+                        b'?' | b'=' | b',' | b')' | b'/' | b':'
+                    ) {
+                        break;
+                    }
+                    end += 1
+                }
+                Span::new(start, end)
+            }
+            _ => return,
+        };
+
+        let current_scope_kind = &mut self.scope_stack.last_mut().kind;
+        match current_scope_kind {
+            ScopeKind::Other => {
+                *current_scope_kind =
+                    ScopeKind::FunctionWithParamProps(FunctionWithParamPropsScope {
+                        super_call_stmt_end: None,
+                        parameter_prop_id_spans: {
+                            let mut prop_id_spans = Vec::with_capacity_in(1, &self.allocator);
+                            prop_id_spans.push(param_id_span);
+                            prop_id_spans
+                        },
+                        last_super_call_expr_span: None,
+                        prologue_scan_state: PrologueScanState::Init,
+                    })
+            }
+            ScopeKind::FunctionWithParamProps(FunctionWithParamPropsScope {
+                parameter_prop_id_spans,
+                ..
+            }) => {
+                parameter_prop_id_spans.push(param_id_span);
+            }
+            other => panic!(
+                "Formal parameter encountered in unexpected scope: {:?}",
+                other
+            ),
+        };
+    }
+
+    fn handle_statement_in_scope_with_param_props(
+        stmt: &Statement<'_, impl AstAllocator>,
+        scope: &mut FunctionWithParamPropsScope,
+    ) {
+        match &mut scope.prologue_scan_state {
+            PrologueScanState::Init => {
+                scope.prologue_scan_state = PrologueScanState::End {
+                    last_prologue_stmt_end: None,
+                }
+            }
+            PrologueScanState::InPrologues {
+                last_prologue_stmt_end,
+            } => {
+                if *last_prologue_stmt_end != stmt.span().end {
+                    scope.prologue_scan_state = PrologueScanState::End {
+                        last_prologue_stmt_end: Some(*last_prologue_stmt_end),
+                    }
+                }
+            }
+            PrologueScanState::End { .. } => {}
+        }
+    }
+
+    fn handle_expr_statement_in_scope_with_param_props(
+        expr_stmt: &ExpressionStatement<'_, impl AstAllocator>,
+        scope: &mut FunctionWithParamPropsScope<'_>,
+    ) {
+        // constructor (...) { ... }
+        if let (Expression::CallExpression(call_expr), Some(last_super_call_expr_span)) =
+            (&expr_stmt.expression, scope.last_super_call_expr_span)
+        {
+            if call_expr.span() == last_super_call_expr_span {
+                scope.super_call_stmt_end = Some(expr_stmt.span.end);
+            }
+        }
+        if let Expression::StringLiteral(_) = expr_stmt.expression {
+            if matches!(
+                scope.prologue_scan_state,
+                PrologueScanState::Init | PrologueScanState::InPrologues { .. }
+            ) {
+                scope.prologue_scan_state = PrologueScanState::InPrologues {
+                    last_prologue_stmt_end: expr_stmt.span.end,
+                }
+            }
+        }
+    }
 }
 
 impl<'source, 'alloc, 'ast, A: AstAllocator> ParserHandler<'ast, A>
@@ -276,19 +398,19 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> ParserHandler<'ast, A>
 impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandler<'source, 'alloc> {
     fn enter_scope<T: AstScopeNode>(&mut self) {
         let kind = match T::SCOPE_TYPE {
-            ScopeType::Class => ScopeKind::Class {
+            ScopeType::Class => ScopeKind::Class(ClassScope {
                 current_element_first_modifier_patch_index: None,
                 parameter_prop_id_spans_in_first_constructor: Vec::new_in(&self.allocator),
                 parameter_prop_id_spans: Vec::new_in(&self.allocator),
                 parameter_prop_init_insert_start: None,
-            },
-            ScopeType::TSEnumDeclaration => ScopeKind::Enum {
+            }),
+            ScopeType::TSEnumDeclaration => ScopeKind::Enum(EnumScope {
                 member_names: Vec::new_in(&self.allocator),
-            },
-            ScopeType::TSModuleDeclaration => ScopeKind::Namespace {
+            }),
+            ScopeType::TSModuleDeclaration => ScopeKind::Namespace(NamespaceScope {
                 current_stmt_binding_identifiers: Vec::new_in(&self.allocator),
                 exported_identifiers: Vec::new_in(&self.allocator),
-            },
+            }),
             _ => ScopeKind::Other,
         };
         self.scope_stack.push(Scope {
@@ -303,20 +425,20 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     fn leave_scope(&mut self) {
         let scope = self.scope_stack.pop();
         match scope.kind {
-            ScopeKind::FunctionWithParamProps {
+            ScopeKind::FunctionWithParamProps(FunctionWithParamPropsScope {
                 parameter_prop_id_spans: parameter_prop_id_spans_under_function,
                 super_call_stmt_end,
                 prologue_scan_state,
                 ..
-            } => {
+            }) => {
                 let Scope {
                     kind:
-                        ScopeKind::Class {
+                        ScopeKind::Class(ClassScope {
                             parameter_prop_id_spans_in_first_constructor,
                             parameter_prop_id_spans: parameter_prop_id_spans_under_class,
                             parameter_prop_init_insert_start,
                             ..
-                        },
+                        }),
                     ..
                 } = self.scope_stack.last_mut()
                 else {
@@ -351,7 +473,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                         PrologueScanState::Init => None,
                     })
             }
-            ScopeKind::Enum { member_names } => {
+            ScopeKind::Enum(EnumScope { member_names }) => {
                 let scope = self.scope_stack.last_mut();
                 let enum_name = scope.current_enum_decl.as_ref().unwrap().enum_name;
                 let member_identifiers = scope
@@ -474,10 +596,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     }
 
     fn handle_binding_identifier(&mut self, id: &BindingIdentifier<'ast>) {
-        if let ScopeKind::Namespace {
+        if let ScopeKind::Namespace(NamespaceScope {
             current_stmt_binding_identifiers,
             ..
-        } = &mut self.scope_stack.last_mut().kind
+        }) = &mut self.scope_stack.last_mut().kind
         {
             let id = &self.source[id.span];
             current_stmt_binding_identifiers.push(self.allocator.alloc_str(id));
@@ -567,7 +689,8 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     }
 
     fn handle_ts_enum_member_name(&mut self, member_name: &TSEnumMemberName<'ast, A>) {
-        let ScopeKind::Enum { member_names } = &mut self.scope_stack.last_mut().kind else {
+        let ScopeKind::Enum(EnumScope { member_names }) = &mut self.scope_stack.last_mut().kind
+        else {
             if cfg!(debug_assertions) {
                 panic!("expect current scope to be Enum when TSEnumMemberName is encountered")
             }
@@ -615,7 +738,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     }
 
     fn handle_ts_enum_member(&mut self, member: &TSEnumMember<'ast, A>) {
-        let ScopeKind::Enum { member_names } = &self.scope_stack.last_mut().kind else {
+        let ScopeKind::Enum(EnumScope { member_names }) = &self.scope_stack.last_mut().kind else {
             if cfg!(debug_assertions) {
                 panic!("expect current scope to be Enum when TSEnumMember is encountered")
             }
@@ -721,10 +844,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     fn handle_class_element(&mut self, element: &ClassElement<'ast, A>) {
         let span = element.span();
         self.class_element_prefix_patch_asi(span.start);
-        let ScopeKind::Class {
+        let ScopeKind::Class(ClassScope {
             current_element_first_modifier_patch_index,
             ..
-        } = &mut self.scope_stack.last_mut().kind
+        }) = &mut self.scope_stack.last_mut().kind
         else {
             if cfg!(debug_assertions) {
                 panic!(
@@ -749,39 +872,17 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     }
 
     fn handle_statement(&mut self, stmt: &Statement<'ast, A>) {
-        let stmt_span = stmt.span();
         let scope = self.scope_stack.last_mut();
         scope.current_enum_decl = None;
         scope.current_namespace_decl = None;
-        // if let ScopeKind::FunctionWithParamProps {
-        //     prologue_scan_state,
-        //     ..
-        // } = &mut scope.kind
         match &mut scope.kind {
-            ScopeKind::FunctionWithParamProps {
-                prologue_scan_state,
-                ..
-            } => match prologue_scan_state {
-                PrologueScanState::Init => {
-                    *prologue_scan_state = PrologueScanState::End {
-                        last_prologue_stmt_end: None,
-                    }
-                }
-                PrologueScanState::InPrologues {
-                    last_prologue_stmt_end,
-                } => {
-                    if *last_prologue_stmt_end != stmt_span.end {
-                        *prologue_scan_state = PrologueScanState::End {
-                            last_prologue_stmt_end: Some(*last_prologue_stmt_end),
-                        }
-                    }
-                }
-                PrologueScanState::End { .. } => {}
-            },
-            ScopeKind::Namespace {
+            ScopeKind::FunctionWithParamProps(scope) => {
+                Self::handle_statement_in_scope_with_param_props(stmt, scope)
+            }
+            ScopeKind::Namespace(NamespaceScope {
                 current_stmt_binding_identifiers,
                 exported_identifiers,
-            } => {
+            }) => {
                 if let Statement::ExportNamedDeclaration(export_stmt) = stmt {
                     // remove `export` of the export decl in namespaces, and add assignments after the decl...
                     let export_token_start = export_stmt.span().start;
@@ -815,41 +916,19 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         self.statement_asi(stmt.span());
     }
 
+    #[inline]
     fn handle_expression_statement(&mut self, expr_stmt: &ExpressionStatement<'ast, A>) {
-        if let ScopeKind::FunctionWithParamProps {
-            super_call_stmt_end,
-            last_super_call_expr_span,
-            prologue_scan_state,
-            ..
-        } = &mut self.scope_stack.last_mut().kind
-        {
-            // constructor (...) { ... }
-            if let (Expression::CallExpression(call_expr), Some(last_super_call_expr_span)) =
-                (&expr_stmt.expression, last_super_call_expr_span)
-            {
-                if call_expr.span() == *last_super_call_expr_span {
-                    *super_call_stmt_end = Some(expr_stmt.span.end);
-                }
-            }
-            if let Expression::StringLiteral(_) = expr_stmt.expression {
-                if matches!(
-                    prologue_scan_state,
-                    PrologueScanState::Init | PrologueScanState::InPrologues { .. }
-                ) {
-                    *prologue_scan_state = PrologueScanState::InPrologues {
-                        last_prologue_stmt_end: expr_stmt.span.end,
-                    }
-                }
-            }
+        if let ScopeKind::FunctionWithParamProps(scope) = &mut self.scope_stack.last_mut().kind {
+            Self::handle_expr_statement_in_scope_with_param_props(expr_stmt, scope);
         };
     }
 
     fn handle_call_expression(&mut self, call_expr: &CallExpression<'ast, A>) {
         if matches!(call_expr.callee, Expression::Super(_)) {
-            if let ScopeKind::FunctionWithParamProps {
+            if let ScopeKind::FunctionWithParamProps(FunctionWithParamPropsScope {
                 last_super_call_expr_span,
                 ..
-            } = &mut self.scope_stack.last_mut().kind
+            }) = &mut self.scope_stack.last_mut().kind
             {
                 *last_super_call_expr_span = Some(call_expr.span)
             }
@@ -890,10 +969,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     fn handle_class_body(&mut self, class_body: &ClassBody<'ast, A>) {
         let Scope {
             kind:
-                ScopeKind::Class {
+                ScopeKind::Class(ClassScope {
                     parameter_prop_id_spans_in_first_constructor,
                     ..
-                },
+                }),
             ..
         } = self.scope_stack.last()
         else {
@@ -932,10 +1011,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
 
     fn handle_ts_function_type(&mut self, ts_func_type: &TSFunctionType<'ast, A>) {
         // ignore param props in function types (`constructor(a: (public b) => void) {}`)
-        if let ScopeKind::FunctionWithParamProps {
+        if let ScopeKind::FunctionWithParamProps(FunctionWithParamPropsScope {
             parameter_prop_id_spans,
             ..
-        } = &mut self.scope_stack.last_mut().kind
+        }) = &mut self.scope_stack.last_mut().kind
         {
             let ts_func_type_start = ts_func_type.span.start;
             while matches!(parameter_prop_id_spans.last(), Some(span) if span.start >= ts_func_type_start)
@@ -955,10 +1034,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             return;
         }
 
-        let ScopeKind::Class {
+        let ScopeKind::Class(ClassScope {
             current_element_first_modifier_patch_index,
             ..
-        } = &mut self.scope_stack.last_mut().kind
+        }) = &mut self.scope_stack.last_mut().kind
         else {
             // ClassElementModifiers could also be encountered in types e.g. `{ readonly a: string }`
             return;
@@ -1010,12 +1089,12 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             self.patches.push_merging_tail(element.span);
         }
 
-        if let ScopeKind::Class {
+        if let ScopeKind::Class(ClassScope {
             parameter_prop_id_spans_in_first_constructor,
             parameter_prop_id_spans,
             parameter_prop_init_insert_start,
             ..
-        } = &mut self.scope_stack.last_mut().kind
+        }) = &mut self.scope_stack.last_mut().kind
         {
             if let (MethodDefinitionKind::Constructor, Some(body)) =
                 (element.kind, &element.value.body)
@@ -1228,30 +1307,37 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         }
     }
 
+    #[inline]
     fn handle_do_while_statement(&mut self, stmt: &DoWhileStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
 
+    #[inline]
     fn handle_while_statement(&mut self, stmt: &WhileStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
 
+    #[inline]
     fn handle_for_statement(&mut self, stmt: &ForStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
 
+    #[inline]
     fn handle_for_in_statement(&mut self, stmt: &ForInStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
 
+    #[inline]
     fn handle_for_of_statement(&mut self, stmt: &ForOfStatement<'ast, A>) {
         self.non_block_body_asi(stmt.body.span());
     }
 
+    #[inline]
     fn handle_formal_parameter_modifiers(&mut self, modifiers: &FormalParameterModifiers) {
         self.patches.push_merging_tail(modifiers.span);
     }
 
+    #[inline]
     fn handle_formal_parameter(&mut self, param: &FormalParameter<'ast, A>) {
         let Some(modifiers) = &param.modifiers else {
             return;
@@ -1259,64 +1345,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         if !(modifiers.r#override || modifiers.readonly || modifiers.accessibility.is_some()) {
             return;
         }
-        let param_id_span = match &param.pattern.kind {
-            BindingPatternKind::BindingIdentifier(param_id) => {
-                let mut param_id_span = param_id.span();
-
-                if let Some(optional_mark) = &param.pattern.optional {
-                    param_id_span.end = optional_mark.span.start;
-                } else if let Some(type_annotation) = &param.pattern.type_annotation {
-                    param_id_span.end = type_annotation.span().start;
-                }
-                param_id_span
-            }
-            BindingPatternKind::AssignmentPattern(assign_pat) => {
-                // public ... = 1
-                let start = assign_pat.span().start;
-
-                if matches!(self.source_bytes()[start as usize], b'{' | b'[') {
-                    // public {a} = {}
-                    return;
-                }
-                let mut end = start;
-                while end <= assign_pat.span().end {
-                    if matches!(
-                        self.source_bytes()[end as usize],
-                        b'?' | b'=' | b',' | b')' | b'/' | b':'
-                    ) {
-                        break;
-                    }
-                    end += 1
-                }
-                Span::new(start, end)
-            }
-            _ => return,
-        };
-
-        let current_scope_kind = &mut self.scope_stack.last_mut().kind;
-        match current_scope_kind {
-            ScopeKind::Other => {
-                *current_scope_kind = ScopeKind::FunctionWithParamProps {
-                    super_call_stmt_end: None,
-                    parameter_prop_id_spans: {
-                        let mut prop_id_spans = Vec::with_capacity_in(1, &self.allocator);
-                        prop_id_spans.push(param_id_span);
-                        prop_id_spans
-                    },
-                    last_super_call_expr_span: None,
-                    prologue_scan_state: PrologueScanState::Init,
-                }
-            }
-            ScopeKind::FunctionWithParamProps {
-                parameter_prop_id_spans,
-                ..
-            } => {
-                parameter_prop_id_spans.push(param_id_span);
-            }
-            other => panic!(
-                "Formal parameter encountered in unexpected scope: {:?}",
-                other
-            ),
-        };
+        self.handle_property_paramemter(param);
     }
 }
