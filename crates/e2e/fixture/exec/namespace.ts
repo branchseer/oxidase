@@ -6,6 +6,10 @@ export namespace A {
     export const variable = 1;
     export function Function() { }
     export class Class { }
+    export namespace Empty { }
+    export namespace Ambient {
+        export interface A {}
+    }
 
     // @D
     // export class Decorated1 { }
@@ -61,4 +65,9 @@ export namespace NameShadowing {
 export namespace NameShadowingExported {
     export const NameShadowingExported = 'NameShadowingExported';
     export const a = NameShadowingExported.length;
+}
+
+export namespace Empty { }
+export namespace Ambient {
+    export interface A {}
 }

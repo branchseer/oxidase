@@ -4,8 +4,6 @@ use std::{
 };
 
 use super::Benchee;
-use oxc_ast::ast::Program;
-use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::Parser;
 use oxc_span::{SourceType, Span};
 

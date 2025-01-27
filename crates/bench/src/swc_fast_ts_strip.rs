@@ -1,6 +1,6 @@
-use std::{hint::black_box, mem::take};
+use std::mem::take;
 
-use swc::try_with_handler;
+use swc_error_reporters::handler::try_with_handler;
 use swc_common::{errors::HANDLER, source_map::SourceMap, sync::Lrc, GLOBALS};
 use swc_ecma_parser::TsSyntax;
 use swc_fast_ts_strip::{operate, Mode, Options};

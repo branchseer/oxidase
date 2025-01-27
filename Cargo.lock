@@ -161,16 +161,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "base64-simd"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "339abbe78e73178762e23bea9dfd08e697eb3f3301cd4be981c0f78ba5859195"
-dependencies = [
- "outref 0.5.1",
- "vsimd",
-]
-
-[[package]]
 name = "better_scoped_tls"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -799,8 +789,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4567c8db10ae91089c99af84c68c38da3ec2f087c3f82960bcdbf3656b6f4d7"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -1386,12 +1378,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f222829ae9293e33a9f5e9f440c6760a3d450a64affe1846486b140db81c1f4"
 
 [[package]]
-name = "outref"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4030760ffd992bef45b0ae3f10ce1aba99e33464c90d14dd7c039884963ddc7a"
-
-[[package]]
 name = "owo-colors"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1600,20 +1586,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxc_sourcemap"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48557f779d04c8bfa8a930db5a3c35c0a86ff4e6bf1552ce446b9596a6e77c42"
-dependencies = [
- "base64-simd 0.8.0",
- "cfg-if",
- "cow-utils",
- "rustc-hash 2.0.0",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "oxc_span"
 version = "0.31.0"
 dependencies = [
@@ -1685,14 +1657,12 @@ dependencies = [
  "ghost-cell",
  "googletest",
  "hashbrown 0.14.5",
- "nonmax",
  "oxc_allocator 0.31.0",
  "oxc_ast 0.31.0",
  "oxc_data_structures",
  "oxc_diagnostics 0.31.0",
  "oxc_index 0.31.0",
  "oxc_parser 0.31.0",
- "oxc_sourcemap",
  "oxc_span 0.31.0",
  "oxc_syntax 0.31.0",
  "rquickjs",
@@ -1708,19 +1678,19 @@ dependencies = [
 name = "oxidase_bench"
 version = "0.1.0"
 dependencies = [
+ "console_error_panic_hook",
  "criterion2",
+ "getrandom",
  "oxc_allocator 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
- "oxc_ast 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
- "oxc_diagnostics 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxc_parser 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxc_span 0.31.0 (git+https://github.com/oxc-project/oxc?rev=d11770d552562fef1177c1758558c61752350142)",
  "oxidase",
  "oxidase_tsc",
- "rayon",
- "swc",
  "swc_common",
  "swc_ecma_parser",
+ "swc_error_reporters",
  "swc_fast_ts_strip",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2356,7 +2326,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9cadb29c57caadc51ff8346233b5cec1d240b68ce55cf1afc764818791876987"
 dependencies = [
- "outref 0.1.0",
+ "outref",
 ]
 
 [[package]]
@@ -2429,7 +2399,7 @@ version = "9.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c4ea7042fd1a155ad95335b5d505ab00d5124ea0332a06c8390d200bb1a76a"
 dependencies = [
- "base64-simd 0.7.0",
+ "base64-simd",
  "bitvec",
  "data-encoding",
  "debugid",
@@ -3708,12 +3678,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vsimd"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 
 [[package]]
 name = "walkdir"

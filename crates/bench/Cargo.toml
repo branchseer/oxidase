@@ -3,21 +3,36 @@ name = "oxidase_bench"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dev-dependencies]
 criterion2 = { workspace = true }
-oxidase = { workspace = true, features = [ "internal-bench" ]}
 oxidase_tsc = { workspace = true }
+
+[dependencies]
+oxidase = { workspace = true }
+
 swc_fast_ts_strip = { workspace = true }
 swc_common = { workspace = true }
 swc_ecma_parser = { workspace = true }
-swc = { workspace = true }
-rayon = { workspace = true }
+swc_error_reporters = { workspace = true }
+
 oxc_parser = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
 oxc_span = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
 oxc_allocator = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
-oxc_ast = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
-oxc_diagnostics = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
+getrandom = { version = "0.2.15" }
+
+wasm-bindgen = { workspace = true, optional = true }
+console_error_panic_hook = { workspace = true, optional = true}
 
 [[bench]]
 name = "transpile"
 harness = false
+
+[features]
+wasm = [
+    "dep:wasm-bindgen", "dep:console_error_panic_hook",
+     # Fix wasm build. TODO: figure out why it's needed for the bench but not for the wasm binding
+    "getrandom/js",
+]

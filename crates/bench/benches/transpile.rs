@@ -1,7 +1,15 @@
-use std::path::Path;
+use std::{cell::RefCell, path::Path};
 
 use criterion::{measurement::WallTime, *};
-use oxidase_bench::{remove_codegen, Benchee, OxcParser, Oxidase, SwcFastTsStrip};
+use oxidase_bench::{Benchee, OxcParser, Oxidase, SwcFastTsStrip};
+
+fn remove_codegen(source: &str) -> String {
+    use oxidase_tsc::Tsc;
+    thread_local! { static TSC: RefCell<Tsc> = RefCell::new(Tsc::new()) }
+    TSC.with_borrow_mut(|tsc| tsc.process_ts(source, true, true))
+        .unwrap()
+        .ts
+}
 
 fn bench<B: Benchee>(
     g: &mut BenchmarkGroup<'_, WallTime>,
