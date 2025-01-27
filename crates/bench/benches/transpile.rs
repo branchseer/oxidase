@@ -3,15 +3,25 @@ use std::path::Path;
 use criterion::{measurement::WallTime, *};
 use oxidase_bench::{remove_codegen, Benchee, OxcParser, Oxidase, SwcFastTsStrip};
 
-fn bench<B: Benchee>(g: &mut BenchmarkGroup<'_, WallTime>, source: &str) {
+fn bench<B: Benchee>(
+    g: &mut BenchmarkGroup<'_, WallTime>,
+    source: &str,
+    is_source_without_codegen: bool,
+) {
     let mut benchee = B::default();
-    g.bench_function(B::NAME, |b| {
+    let id = BenchmarkId::new(
+        B::NAME,
+        if is_source_without_codegen {
+            "without-codegen"
+        } else {
+            "original"
+        },
+    );
+    g.bench_function(id, |b| {
         b.iter_batched(
             || source.to_string(),
-            |mut source| {
-                benchee.run(&mut source)
-            },
-            BatchSize::SmallInput
+            |mut source| benchee.run(&mut source),
+            BatchSize::SmallInput,
         )
     });
 }
@@ -22,26 +32,22 @@ fn transpile_benchmark(c: &mut Criterion) {
         let path = Path::new("files").join(filename);
         let source = std::fs::read_to_string(&path).unwrap();
 
-        for without_codegen in [false, true] {
-            let mut group_name = filename.to_string();
-            if without_codegen {
-                group_name.insert_str(0, "no_codegen_");
-            }
+        let mut g = c.benchmark_group(filename);
 
-            let mut g = c.benchmark_group(&group_name);
+        for without_codegen in [false, true] {
             let source = if without_codegen {
                 remove_codegen(&source)
             } else {
                 source.clone()
             };
 
-            bench::<Oxidase>(&mut g, &source);
-            bench::<OxcParser>(&mut g, &source);
+            bench::<Oxidase>(&mut g, &source, without_codegen);
+            bench::<OxcParser>(&mut g, &source, without_codegen);
             if without_codegen {
-                bench::<SwcFastTsStrip>(&mut g, &source);
+                bench::<SwcFastTsStrip>(&mut g, &source, without_codegen);
             }
-            g.finish();
         }
+        g.finish();
     }
 }
 

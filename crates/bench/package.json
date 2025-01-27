@@ -2,7 +2,8 @@
   "name": "oxidase_bench",
   "private": true,
   "scripts": {
-    "compare-memory": "tsx memory.mts"
+    "compare-memory": "tsx memory.mts",
+    "table": "tsx table.mts"
   },
   "license": "MIT",
   "dependencies": {

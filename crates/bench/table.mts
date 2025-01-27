@@ -12,26 +12,41 @@
  *   -o,--output <path>    Output file path. Prints to stdout if not set.
  */
 import fs from 'node:fs'
-import { markdownTable }  from 'markdown-table'
+import { markdownTable } from 'markdown-table'
 
 async function readdir(dir) {
-  return (await fs.promises.readdir(dir)).filter(name => !name.startsWith('.'));
+  return (await fs.promises.readdir(dir)).filter(
+    name => !name.startsWith('.') // filtering out .DS_Store
+  );
+}
+
+interface Data {
+  [group: string]: {
+    [bench: string]: {
+      [parameter: string]: { durationMs: number }
+    }
+  }
 }
 
 async function readData() {
-  const data = {};
+  const data: Data = {};
   const dir = "../../target/criterion";
 
   const groups = await readdir(dir);
   for (const group of groups) {
     data[group] ||= {};
 
-    const benches = await readdir(`${dir}/${group}`);
+    let benches = await readdir(`${dir}/${group}`);
+    benches = ["oxidase", ...benches.filter(name => name !== 'oxidase')];
     for (const bench of benches) {
-        const json = await import(`${dir}/${group}/${bench}/new/estimates.json`, { with: { type: "json" } });
-        const duration_ms = json.default.mean.point_estimate / 1_000_000;
-        data[group][bench] ||= { duration_ms };
-      
+      data[group][bench] ||= {};
+
+      const parameters = await readdir(`${dir}/${group}/${bench}`);
+      for (const parameter of parameters) {
+        const json = await import(`${dir}/${group}/${bench}/${parameter}/new/estimates.json`, { with: { type: "json" } });
+        const durationMs = json.default.mean.point_estimate / 1_000_000;
+        data[group][bench][parameter] ||= { durationMs };
+      }
     }
   }
   return data
@@ -53,14 +68,14 @@ function parseArgs(argv) {
     output: null,
   };
 
-  for(let arg = argv.shift(); arg; arg = argv.shift()) {
-    switch(arg) {
+  for (let arg = argv.shift(); arg; arg = argv.shift()) {
+    switch (arg) {
       case '-f':
       case '--format': {
 
         const format = argv.shift()?.trim()?.toLowerCase();
         if (!format) throw new TypeError('--format flag requires an argument');
-        switch(format) {
+        switch (format) {
           case 'md':
           case 'markdown':
             opts.format = 'markdown';
@@ -96,19 +111,23 @@ async function main(argv) {
 
   let out = '';
 
-  switch(options.format) {
+  switch (options.format) {
     case 'markdown': {
       for (const group of groups) {
         const columns = Object.keys(data[group]);
         const rows = Object.keys(data[group][columns[0]]);
+
         out += `### ${group}\n`;
         const table = [["", ...columns]];
 
         for (const row of rows) {
-          const column_numbers = columns.map((column) => data[group][column][row].duration_ms);
-          const minimum = Math.min(...column_numbers);
+          const column_numbers = columns.map((column) => data[group][column][row]?.durationMs);
+          const baseline = column_numbers[0];
           const column_values = column_numbers.map((number) => {
-            return `\`${number.toFixed(1)} ms\` (${(number / minimum).toFixed(2)}x)`
+            if (number === undefined) {
+              return 'N/A'
+            }
+            return `\`${number.toFixed(2)} ms\` (${(number / baseline).toFixed(2)}x)`
           });
           table.push([row, ...column_values]);
         }
@@ -132,7 +151,7 @@ async function main(argv) {
         }
       }
     }
-    break;
+      break;
 
     default:
       throw new TypeError(`Unexpected output format '${options.format}'`);
