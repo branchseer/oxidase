@@ -51,6 +51,9 @@ v8 = "130.0.2"
 criterion2  = { version = "2.0.0", default-features = false }
 oxc_sourcemap = "1.0.6"
 nonmax = "0.5.5"
+console_error_panic_hook = "0.1.7"
+wasm-bindgen = "0.2.84"
+wasm-bindgen-test = "0.3.34"
 
 [profile.release]
 opt-level     = 3
