@@ -112,7 +112,7 @@ struct EnumScope<'alloc> {
 struct NamespaceScope<'alloc> {
     current_stmt_binding_identifiers: Vec<'alloc, &'alloc str>,
     exported_identifiers: Vec<'alloc, &'alloc str>,
-    ambient: bool,
+    is_ambient: bool,
 }
 
 #[derive(Debug)]
@@ -412,7 +412,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             ScopeType::TSModuleDeclaration => ScopeKind::Namespace(NamespaceScope {
                 current_stmt_binding_identifiers: Vec::new_in(&self.allocator),
                 exported_identifiers: Vec::new_in(&self.allocator),
-                ambient: true,
+                is_ambient: true,
             }),
             _ => ScopeKind::Other,
         };
@@ -491,7 +491,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                     }
                 }));
             }
-            ScopeKind::Namespace(namespace_scope) if !namespace_scope.ambient => {
+            ScopeKind::Namespace(namespace_scope) if !namespace_scope.is_ambient => {
                 let scope = self.scope_stack.last_mut();
                 scope.current_namespace_decl.as_mut().unwrap().is_ambient = false;
             }
@@ -655,7 +655,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         ));
 
         if let ScopeKind::Namespace(scope) = &mut self.scope_stack.last_mut().kind {
-            scope.ambient = false;
+            scope.is_ambient = false;
         }
     }
 
@@ -900,7 +900,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             ScopeKind::Namespace(NamespaceScope {
                 current_stmt_binding_identifiers,
                 exported_identifiers,
-                ambient,
+                is_ambient: ambient,
             }) => {
                 *ambient = *ambient
                     && self

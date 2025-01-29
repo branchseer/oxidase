@@ -1,6 +1,6 @@
 [tools]
 node = "22.13.0"
-pnpm = "10.0.0"
+pnpm = "10.1.0"
 "cargo:wasm-bindgen-cli" = "0.2.100"
 "cargo:wasm-pack" = "0.13.1"
 hyperfine = "1.19.0"
@@ -13,7 +13,10 @@ run = "cargo run -p oxidase_e2e --profile e2e --"
 
 [tasks.'wasm:build']
 dir ="{{ config_root }}/packages/wasm/bindings"
-run = "wasm-pack build --release --no-pack --target bundler --out-dir ../wasm_esm && wasm-pack build --release --no-pack --target nodejs --out-dir ../wasm_node"
+run = [
+    "wasm-pack build --release --no-pack --target bundler --out-dir ../wasm_esm",
+    "wasm-pack build --release --no-pack --target nodejs --out-dir ../wasm_node",
+]
 
 [tasks.'wasm:test']
 dir ="{{ config_root }}/packages/wasm/test"
