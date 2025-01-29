@@ -70,6 +70,7 @@ struct CurrentEnumDeclaration<'alloc> {
 struct CurrentNamespaceDeclaration<'alloc> {
     namespace_name: &'alloc str,
     index_of_patch_before_namespace_name: usize,
+    is_ambient: bool,
 }
 
 #[derive(Debug)]
@@ -111,6 +112,7 @@ struct EnumScope<'alloc> {
 struct NamespaceScope<'alloc> {
     current_stmt_binding_identifiers: Vec<'alloc, &'alloc str>,
     exported_identifiers: Vec<'alloc, &'alloc str>,
+    ambient: bool,
 }
 
 #[derive(Debug)]
@@ -410,6 +412,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             ScopeType::TSModuleDeclaration => ScopeKind::Namespace(NamespaceScope {
                 current_stmt_binding_identifiers: Vec::new_in(&self.allocator),
                 exported_identifiers: Vec::new_in(&self.allocator),
+                ambient: true,
             }),
             _ => ScopeKind::Other,
         };
@@ -488,7 +491,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                     }
                 }));
             }
-
+            ScopeKind::Namespace(namespace_scope) if !namespace_scope.ambient => {
+                let scope = self.scope_stack.last_mut();
+                scope.current_namespace_decl.as_mut().unwrap().is_ambient = false;
+            }
             _ => {}
         }
     }
@@ -585,6 +591,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             // The span should cover the namespace/module token, but we don't know the start of it in `handle_ts_module_declaration_name`.
             // Store the index of the patch and change the span start later in `handle_ts_module_declaration``
             index_of_patch_before_namespace_name: self.patches.len(),
+            is_ambient: true,
         });
 
         self.patches.push((
@@ -611,9 +618,16 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             self.patches.push_merging_tail(decl.span);
             return;
         }
+
         let Some(current_namespace_decl) = &self.scope_stack.last().current_namespace_decl else {
             return;
         };
+
+        if current_namespace_decl.is_ambient {
+            self.patches.push_merging_tail(decl.span);
+            return;
+        }
+
         self.patches[current_namespace_decl.index_of_patch_before_namespace_name]
             .span
             .start = decl.span.start;
@@ -639,6 +653,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             (decl.span.end..decl.span.end),
             tail_replacement.into_bump_str(),
         ));
+
+        if let ScopeKind::Namespace(scope) = &mut self.scope_stack.last_mut().kind {
+            scope.ambient = false;
+        }
     }
 
     fn handle_ts_enum_head(&mut self, enum_head: &TSEnumHead<'ast>) {
@@ -882,7 +900,17 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             ScopeKind::Namespace(NamespaceScope {
                 current_stmt_binding_identifiers,
                 exported_identifiers,
+                ambient,
             }) => {
+                *ambient = *ambient
+                    && self
+                        .patches
+                        .last()
+                        .map(|last_patch| {
+                            matches!(last_patch.replacement, "" | ";")
+                                && last_patch.span == stmt.span()
+                        })
+                        .unwrap_or(false);
                 if let Statement::ExportNamedDeclaration(export_stmt) = stmt {
                     // remove `export` of the export decl in namespaces, and add assignments after the decl...
                     let export_token_start = export_stmt.span().start;
