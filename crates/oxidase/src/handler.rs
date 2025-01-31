@@ -739,19 +739,17 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                 is_identifier: false,
             },
         };
-        self.patches.push_merging_tail((
-            span,
-            if name.is_identifier {
-                // var A = 0; this[this.A = A] = "A";
-                // ^^^^^
-                format!(in &self.allocator, "var {}", name.value)
-            } else {
+        if !name.is_identifier {
+            self.patches.push_merging_tail((
+                span,
                 // this[this["C\n"] = 0] = "C\n";
                 // ^^^^^^^^^^^^^^^^
-                format!(in &self.allocator, "this[this[{}]", name.value)
-            }
-            .into_bump_str(),
-        ));
+                format!(in &self.allocator, "this[this[{}]", name.value).into_bump_str(),
+            ));
+        } else if matches!(member_name, TSEnumMemberName::StaticStringLiteral(_)) {
+            // "validIdentifier" to validIdentifier
+            self.patches.push_merging_tail((span, name.value));
+        }
         member_names.push(name);
     }
 
@@ -788,19 +786,19 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         };
 
         if current_member_name.is_identifier {
-            // var A = 0; this[this.A = A] = "A";
-            //          ^^^^^^^^^^^^^^^^^^^^^^^^^
+            // A = 0;var A;this[this.A=A]="A";
+            //       ^^^^^^^^^^^^^^^^^^^^^^^^^
             replacement
                 .write_fmt(format_args!(
-                    "; this[this.{0} = {0}] = '{0}';",
+                    ";var {0};this[this.{0}={0}]='{0}';",
                     current_member_name.value
                 ))
                 .unwrap();
         } else {
-            // this[this["C\n"] = 0] = "C\n";
+            // this[this["C\n"] = 0]="C\n";
             //                     ^^^^^^^^^^
             replacement
-                .write_fmt(format_args!("] = {};", current_member_name.value))
+                .write_fmt(format_args!("]={};", current_member_name.value))
                 .unwrap();
         }
 
