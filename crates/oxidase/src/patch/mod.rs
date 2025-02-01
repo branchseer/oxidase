@@ -1,13 +1,14 @@
 use std::{
-    cmp::min, mem::{transmute, MaybeUninit}, ops::Range, slice::from_raw_parts_mut, str::from_utf8
+    cmp::min,
+    mem::{transmute, MaybeUninit},
+    ops::Range,
+    slice::from_raw_parts_mut,
+    str::from_utf8,
 };
 
 use oxc_span::Span;
 
 use crate::{line_term::contains_line_terminators, string_buf::StringBuf};
-
-// https://tc39.es/ecma262/multipage/ecmascript-language-lexical-grammar.html#table-line-terminator-code-points
-const LINE_TERMINATORS: &[&[u8]] = &[b"\n", b"\r", &[226, 128, 168], &[226, 128, 169]];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Patch<'a> {
@@ -17,19 +18,28 @@ pub struct Patch<'a> {
 
 impl<'a> From<Span> for Patch<'a> {
     fn from(span: Span) -> Self {
-        Patch { span, replacement: "" }
+        Patch {
+            span,
+            replacement: "",
+        }
     }
 }
 
 impl<'a> From<Range<u32>> for Patch<'a> {
     fn from(range: Range<u32>) -> Self {
-        Patch { span: range.into(), replacement: "" }
+        Patch {
+            span: range.into(),
+            replacement: "",
+        }
     }
 }
 
 impl<'a, S: Into<Span>> From<(S, &'a str)> for Patch<'a> {
     fn from((span, replacement): (S, &'a str)) -> Self {
-        Patch { span: span.into(), replacement }
+        Patch {
+            span: span.into(),
+            replacement,
+        }
     }
 }
 
@@ -87,11 +97,16 @@ impl<'a> BackwardCursor<'a> {
                 b'\r' | b'\n' => {
                     self.write_byte(byte);
                     src_index -= 1;
-                },
-                168 | 169 if matches!(transmute::<&[MaybeUninit<u8>], &[u8]>(&self.buf[..src_index as usize]), [.., 226, 128])  => {
+                }
+                168 | 169
+                    if matches!(
+                        transmute::<&[MaybeUninit<u8>], &[u8]>(&self.buf[..src_index as usize]),
+                        [.., 226, 128]
+                    ) =>
+                {
                     self.write(&[226, 128, byte]);
                     src_index -= 3;
-                },
+                }
                 _ => {
                     self.write_byte(b' ');
                     src_index -= 1;
@@ -101,10 +116,11 @@ impl<'a> BackwardCursor<'a> {
     }
 }
 
-/// # Safety:
+/// # Safety
+///
 /// - patches are sorted and not overlapped
 /// - patche spans are valid utf8 char boundaries
-/// 
+///
 ///  Panics if a span of any patch is not char boundary.
 pub unsafe fn apply_patches(patches: &[Patch<'_>], source: &mut impl StringBuf) {
     if patches.is_empty() {
@@ -161,7 +177,6 @@ pub unsafe fn apply_patches(patches: &[Patch<'_>], source: &mut impl StringBuf) 
 
         #[cfg(debug_assertions)]
         {
-           
             let source_to_be_replaced = unsafe {
                 transmute::<&[MaybeUninit<u8>], &[u8]>(
                     &cur.buf[patch_start..min(patch_start + patch.replacement.len(), patch_end)],
@@ -187,7 +202,10 @@ pub unsafe fn apply_patches(patches: &[Patch<'_>], source: &mut impl StringBuf) 
     cur.write_within(0..last_patch_start);
 
     debug_assert_eq!(cur.pos, 0);
-    debug_assert!(core::str::from_utf8(unsafe { transmute(cur.buf) }).is_ok());
+    debug_assert!(core::str::from_utf8(unsafe {
+        transmute::<&mut [std::mem::MaybeUninit<u8>], &[u8]>(cur.buf)
+    })
+    .is_ok());
 
     unsafe { source.set_len(src_len + additional) };
 }
@@ -198,7 +216,7 @@ mod tests {
     #[test]
     fn basic() {
         let mut source = "abc\nd".to_owned();
-        let mut patches = [
+        let patches = [
             Patch {
                 span: (0..0).into(),
                 replacement: "x",
@@ -208,18 +226,18 @@ mod tests {
                 replacement: "0",
             },
         ];
-        unsafe { apply_patches(&mut patches, &mut source) };
+        unsafe { apply_patches(&patches, &mut source) };
         assert_eq!(source.as_str(), "xa0 \nd");
     }
 
     #[test]
     fn all_removed() {
         let mut source = "abc\nd".to_owned();
-        let mut patches = [Patch {
+        let patches = [Patch {
             span: (0..source.len() as u32).into(),
             replacement: "",
         }];
-        unsafe { apply_patches(&mut patches, &mut source) };
+        unsafe { apply_patches(&patches, &mut source) };
         assert_eq!(source.as_str(), "   \n ");
     }
 }

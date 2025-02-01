@@ -31,11 +31,10 @@ impl VisitMut for EmptyStatementRemover {
     fn visit_mut_str(&mut self, lit: &mut Str) {
         lit.raw = None;
     }
-    
+
     fn visit_mut_big_int(&mut self, lit: &mut BigInt) {
         lit.raw = None;
     }
-
 }
 
 pub fn remove_empty_statements(node: &mut Program) {
@@ -69,11 +68,10 @@ pub fn format_js(source: &str) -> anyhow::Result<String> {
     program = program.apply(paren_remover(None));
     program = program.apply(fixer(None));
 
-
     let compiler = Compiler::new(cm);
 
     let print_args = PrintArgs::default();
-    
+
     let ret = compiler.print(
         &program, // ast to print
         print_args,
@@ -84,4 +82,3 @@ pub fn format_js(source: &str) -> anyhow::Result<String> {
     let code = ret.code.replace(",  }", " }");
     Ok(code)
 }
-

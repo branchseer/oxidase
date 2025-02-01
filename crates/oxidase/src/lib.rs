@@ -42,10 +42,13 @@ pub fn transpile_with_options<A: AstAllocator, S: StringBuf>(
     source_type: SourceType,
     source: &mut S,
 ) -> TranspileReturn {
-    let mut parser_options = ParseOptions::default();
     // we are here to transpile, not validate. Be as loose as possible.
-    parser_options.allow_return_outside_function = true;
-    parser_options.allow_skip_ambient = allow_skip_ambient;
+    let parser_options = ParseOptions {
+        allow_return_outside_function: true,
+        allow_skip_ambient,
+        ..Default::default()
+    };
+
     let parser = Parser::new(allocator, source.as_ref(), source_type).with_options(parser_options);
     let handler = StripHandler::new(allocator, source.as_ref());
 

@@ -23,10 +23,7 @@ fn bench<B: Benchee>(
         "original"
     };
     let size_mb = source.as_bytes().len() as f64 / 1024.0 / 1024.0;
-    let id = BenchmarkId::new(
-        B::NAME,
-        format!("{} ({:.3} MB)", name, size_mb)
-    );
+    let id = BenchmarkId::new(B::NAME, format!("{} ({:.3} MB)", name, size_mb));
     let mut source_buf = String::new();
     g.bench_function(id, |b| {
         source_buf.clear();

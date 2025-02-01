@@ -1,7 +1,4 @@
-use std::{
-    hint::black_box,
-    mem::forget,
-};
+use std::{hint::black_box, mem::forget};
 
 use super::Benchee;
 use oxc_parser::Parser;

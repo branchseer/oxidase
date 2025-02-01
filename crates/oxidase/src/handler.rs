@@ -111,7 +111,7 @@ struct EnumScope<'alloc> {
 #[derive(Debug)]
 struct NamespaceScope<'alloc> {
     current_stmt_binding_identifiers: Vec<'alloc, &'alloc str>,
-    exported_identifiers: Vec<'alloc, &'alloc str>,
+    // exported_identifiers: Vec<'alloc, &'alloc str>,
     is_ambient: bool,
 }
 
@@ -411,7 +411,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             }),
             ScopeType::TSModuleDeclaration => ScopeKind::Namespace(NamespaceScope {
                 current_stmt_binding_identifiers: Vec::new_in(self.allocator),
-                exported_identifiers: Vec::new_in(self.allocator),
+                // exported_identifiers: Vec::new_in(self.allocator),
                 is_ambient: true,
             }),
             _ => ScopeKind::Other,
@@ -849,8 +849,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         self.patches.push_merging_tail(decl.span);
     }
 
-    fn handle_function_body(&mut self, body: &FunctionBody<'ast, A>) {}
-
     fn handle_function(&mut self, func: &Function<'ast, A>) {
         if func.declare || func.body.is_none() {
             self.patches.push_merging_tail(func.span);
@@ -897,8 +895,8 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             }
             ScopeKind::Namespace(NamespaceScope {
                 current_stmt_binding_identifiers,
-                exported_identifiers,
                 is_ambient: ambient,
+                ..
             }) => {
                 *ambient = *ambient
                     && self

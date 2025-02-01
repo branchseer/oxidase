@@ -114,7 +114,9 @@ mod tests {
     fn script_kind() {
         let mut tsc = Tsc::new();
         assert_eq!(
-            tsc.process_ts("let a: string = 1", true, false).unwrap().kind,
+            tsc.process_ts("let a: string = 1", true, false)
+                .unwrap()
+                .kind,
             SourceKind::Script
         );
     }

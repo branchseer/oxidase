@@ -1,17 +1,16 @@
 #![recursion_limit = "256"]
 
 use std::env::args;
-use std::process;
 use std::fs::read_to_string;
+use std::process;
 
 use oxidase::oxc_diagnostics::NamedSource;
 use oxidase::{transpile, Allocator, SourceType};
 
 fn main() {
-    let path = args().nth(1).unwrap_or_else(|| concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/bin/debug_input.ts"
-    ).to_owned());
+    let path = args().nth(1).unwrap_or_else(|| {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/src/bin/debug_input.ts").to_owned()
+    });
 
     let mut source = read_to_string(&path).unwrap();
 

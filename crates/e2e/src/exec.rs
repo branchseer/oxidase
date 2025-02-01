@@ -1,4 +1,3 @@
-
 use v8::Local;
 
 #[derive(Debug, thiserror::Error)]
@@ -78,7 +77,6 @@ pub fn eval(src: &str) -> Result<serde_json::Value, EvalError> {
 
 #[cfg(test)]
 mod tests {
-    
 
     use super::*;
 

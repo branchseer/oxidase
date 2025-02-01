@@ -5,7 +5,7 @@ mod format;
 use std::{
     any::Any,
     cell::RefCell,
-    fmt::{Debug, Display, Write},
+    fmt::{Debug, Display},
     fs::read_to_string,
     io,
     panic::{catch_unwind, AssertUnwindSafe},
@@ -23,7 +23,7 @@ use exec::{eval, EvalError};
 use format::format_js;
 use ignore::{DirEntry, WalkBuilder};
 use oxidase::{
-    line_term::line_terminator_start_iter, Allocator, oxc_diagnostics::OxcDiagnostic, SourceType,
+    line_term::line_terminator_start_iter, oxc_diagnostics::OxcDiagnostic, Allocator, SourceType,
 };
 use oxidase_tsc::{SourceKind, Tsc};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
