@@ -3,13 +3,13 @@ members = [ "crates/oxidase", "crates/e2e", "crates/tsc", "crates/bench", "packa
 resolver = "2"
 
 [workspace.dependencies]
-oxc_allocator = { path = "../oxc/crates/oxc_allocator" }
-oxc_parser = { path = "../oxc/crates/oxc_parser" }
-oxc_span = { path = "../oxc/crates/oxc_span" }
-oxc_syntax = { path = "../oxc/crates/oxc_syntax" }
-oxc_index = { path = "../oxc/crates/oxc_index" }
-oxc_diagnostics = { path = "../oxc/crates/oxc_diagnostics" }
-oxc_ast = { path = "../oxc/crates/oxc_ast" }
+oxc_allocator = { git = "https://github.com/branchseer/oxc", branch = "ast_alloc" }
+oxc_parser = { git = "https://github.com/branchseer/oxc", branch = "ast_alloc" }
+oxc_span = { git = "https://github.com/branchseer/oxc", branch = "ast_alloc" }
+oxc_syntax = { git = "https://github.com/branchseer/oxc", branch = "ast_alloc" }
+oxc_index = { git = "https://github.com/branchseer/oxc", branch = "ast_alloc" }
+oxc_diagnostics = { git = "https://github.com/branchseer/oxc", branch = "ast_alloc" }
+oxc_ast = { git = "https://github.com/branchseer/oxc", branch = "ast_alloc" }
 oxc_data_structures = "0.45.0"
 oxidase_tsc = { path = "crates/tsc" }
 oxidase = { path = "crates/oxidase" }
