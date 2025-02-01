@@ -1,6 +1,5 @@
-use std::{cell::RefCell, ops::Deref};
 
-use v8::{Local, ScriptOrigin};
+use v8::Local;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EvalError {
@@ -72,14 +71,14 @@ pub fn eval(src: &str) -> Result<serde_json::Value, EvalError> {
 
         // TODO: check invalid values such as functions. They're currently converted to empty objects.
         let json = serde_v8::from_v8::<serde_json::Value>(scope, module_namespace)
-            .map_err(|err| EvalError::InvalidJson(err))?;
+            .map_err(EvalError::InvalidJson)?;
         Ok(json)
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Once;
+    
 
     use super::*;
 

@@ -148,7 +148,7 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
                 Scope {
                     last_statement: None,
                     kind: ScopeKind::Other,
-                    member_identifiers_by_enum_names: HashMap::new_in(&allocator),
+                    member_identifiers_by_enum_names: HashMap::new_in(allocator),
                     current_enum_decl: None,
                     current_namespace_decl: None,
                 },
@@ -305,7 +305,7 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
                     ScopeKind::FunctionWithParamProps(FunctionWithParamPropsScope {
                         super_call_stmt_end: None,
                         parameter_prop_id_spans: {
-                            let mut prop_id_spans = Vec::with_capacity_in(1, &self.allocator);
+                            let mut prop_id_spans = Vec::with_capacity_in(1, self.allocator);
                             prop_id_spans.push(param_id_span);
                             prop_id_spans
                         },
@@ -402,16 +402,16 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         let kind = match T::SCOPE_TYPE {
             ScopeType::Class => ScopeKind::Class(ClassScope {
                 current_element_first_modifier_patch_index: None,
-                parameter_prop_id_spans_in_first_constructor: Vec::new_in(&self.allocator),
-                parameter_prop_id_spans: Vec::new_in(&self.allocator),
+                parameter_prop_id_spans_in_first_constructor: Vec::new_in(self.allocator),
+                parameter_prop_id_spans: Vec::new_in(self.allocator),
                 parameter_prop_init_insert_start: None,
             }),
             ScopeType::TSEnumDeclaration => ScopeKind::Enum(EnumScope {
-                member_names: Vec::new_in(&self.allocator),
+                member_names: Vec::new_in(self.allocator),
             }),
             ScopeType::TSModuleDeclaration => ScopeKind::Namespace(NamespaceScope {
-                current_stmt_binding_identifiers: Vec::new_in(&self.allocator),
-                exported_identifiers: Vec::new_in(&self.allocator),
+                current_stmt_binding_identifiers: Vec::new_in(self.allocator),
+                exported_identifiers: Vec::new_in(self.allocator),
                 is_ambient: true,
             }),
             _ => ScopeKind::Other,
@@ -420,7 +420,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             last_statement: None,
             kind,
             current_enum_decl: None,
-            member_identifiers_by_enum_names: HashMap::new_in(&self.allocator),
+            member_identifiers_by_enum_names: HashMap::new_in(self.allocator),
             current_namespace_decl: None,
         });
     }
@@ -466,7 +466,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                 }
                 *parameter_prop_id_spans_under_class = parameter_prop_id_spans_under_function;
                 *parameter_prop_init_insert_start =
-                    super_call_stmt_end.or_else(|| match prologue_scan_state {
+                    super_call_stmt_end.or(match prologue_scan_state {
                         PrologueScanState::InPrologues {
                             last_prologue_stmt_end,
                         } => Some(last_prologue_stmt_end),
@@ -482,7 +482,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                 let member_identifiers = scope
                     .member_identifiers_by_enum_names
                     .entry(enum_name)
-                    .or_insert_with(|| HashSet::new_in(&self.allocator));
+                    .or_insert_with(|| HashSet::new_in(self.allocator));
                 member_identifiers.extend(member_names.into_iter().filter_map(|member_name| {
                     if member_name.is_identifier {
                         Some(member_name.value)
@@ -686,12 +686,12 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         self.patches.push(Patch {
             span: (enum_head.id.span.end..enum_head.id.span.end).into(),
             replacement: {
-                let mut replacement = String::from_str_in("){", &self.allocator);
+                let mut replacement = String::from_str_in("){", self.allocator);
                 if let Some(existing_member_identifiers) = existing_member_identifiers {
                     if !existing_member_identifiers.is_empty() {
                         replacement.push_str("var {");
                         for (index, member_id) in existing_member_identifiers.iter().enumerate() {
-                            replacement.push_str(*member_id);
+                            replacement.push_str(member_id);
                             if index < existing_member_identifiers.len() - 1 {
                                 replacement.push(',');
                             }
@@ -762,7 +762,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         };
 
         let current_member_name = member_names.last().unwrap();
-        let mut replacement = String::from_str_in("", &self.allocator);
+        let mut replacement = String::from_str_in("", self.allocator);
 
         // init code
         if member.initializer.is_none() {
@@ -917,12 +917,12 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                     {
                         let export_span = Span::new(
                             export_token_start,
-                            (export_token_start + const { "export".len() as u32 }),
+                            export_token_start + const { "export".len() as u32 },
                         );
                         debug_assert_eq!(&self.source[export_span], "export");
                         self.patches.binary_search_insert((export_span, ""));
 
-                        let mut assignments = String::new_in(&self.allocator);
+                        let mut assignments = String::new_in(self.allocator);
                         let end = export_stmt.span().end;
                         if self.source.as_bytes()[end as usize - 1] != b';' {
                             assignments.push(';');
@@ -1011,7 +1011,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                 .iter()
                 .map(|span| span.size() as usize + 2)
                 .sum(),
-            &self.allocator,
+            self.allocator,
         );
         for prop_id_span in parameter_prop_id_spans_in_first_constructor {
             prop_decls.push(' ');
@@ -1027,7 +1027,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
     fn handle_class(&mut self, it: &Class<'ast, A>) {
         if it.modifiers.is_some_and(|modifiers| modifiers.declare) {
             self.patches.push_merging_tail(it.span);
-            return;
         }
     }
 
@@ -1137,7 +1136,7 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                         })
                         .sum::<usize>()
                         + 1,
-                    &self.allocator,
+                    self.allocator,
                 );
 
                 let insert_span = if let Some(parameter_prop_init_insert_start) =
@@ -1193,7 +1192,6 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             .is_some_and(|modifiers| modifiers.declare || modifiers.r#abstract)
         {
             self.patches.push_merging_tail(element.span);
-            return;
         }
     }
 
@@ -1313,15 +1311,13 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         let consequent_span = if_stmt.consequent.span();
         let possible_strip_patch_of_consequent = if if_stmt.alternate.is_none() {
             self.patches.last_mut()
+        } else if let Ok(index) = self
+            .patches
+            .binary_search_by_key(&consequent_span.start, |patch| patch.span.start)
+        {
+            Some(&mut self.patches[index])
         } else {
-            if let Ok(index) = self
-                .patches
-                .binary_search_by_key(&consequent_span.start, |patch| patch.span.start)
-            {
-                Some(&mut self.patches[index])
-            } else {
-                None
-            }
+            None
         };
         let Some(possible_strip_patch_of_consequent) = possible_strip_patch_of_consequent else {
             return;

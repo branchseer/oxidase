@@ -106,7 +106,7 @@ impl<'a> BackwardCursor<'a> {
 /// - patche spans are valid utf8 char boundaries
 /// 
 ///  Panics if a span of any patch is not char boundary.
-pub unsafe fn apply_patches<'alloc>(patches: &[Patch<'alloc>], source: &mut impl StringBuf) {
+pub unsafe fn apply_patches(patches: &[Patch<'_>], source: &mut impl StringBuf) {
     if patches.is_empty() {
         return;
     }
@@ -116,7 +116,7 @@ pub unsafe fn apply_patches<'alloc>(patches: &[Patch<'alloc>], source: &mut impl
                 panic!("Unordered/overlapped patches: {:?}", patches)
             }
         }
-        for patch in &*patches {
+        for patch in patches {
             if patch.span.end < patch.span.start {
                 panic!("Invalid patch span: {:?}", patch);
             }
@@ -131,7 +131,7 @@ pub unsafe fn apply_patches<'alloc>(patches: &[Patch<'alloc>], source: &mut impl
 
     for patch in patches.iter() {
         let span_size = patch.span.size() as usize;
-        additional += patch.replacement.len().checked_sub(span_size).unwrap_or(0);
+        additional += patch.replacement.len().saturating_sub(span_size);
     }
 
     let mut last_patch_start: usize = src_len;

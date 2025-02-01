@@ -5,8 +5,7 @@ use swc_ecma_ast::{BigInt, EsVersion, Number, Program, Str};
 use swc_ecma_parser::{with_file_parser, Syntax};
 use swc_ecma_transforms::fixer::{fixer, paren_remover};
 
-use std::ops::Deref;
-use swc_ecma_ast::{BindingIdent, ClassMember, Expr, Lit, ModuleItem, SimpleAssignTarget, Stmt};
+use swc_ecma_ast::{ClassMember, ModuleItem, Stmt};
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
 pub struct EmptyStatementRemover;
@@ -86,15 +85,3 @@ pub fn format_js(source: &str) -> anyhow::Result<String> {
     Ok(code)
 }
 
-#[cfg(test)]
-mod tests {
-    use oxidase::{Allocator, SourceType};
-
-    use super::*;
-
-    #[test]
-    fn test_format_ts() {
-        let source = std::fs::read_to_string("/Users/patr0nus/code/oxidase/crates/e2e/fixture/ecosystem/ts-blank-space/tests/fixture/cases/a.ts").unwrap();
-        println!("--------------------\n{}", format_js(&source).unwrap());
-    }
-}

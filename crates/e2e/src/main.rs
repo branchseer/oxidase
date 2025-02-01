@@ -9,10 +9,10 @@ use std::{
     fs::read_to_string,
     io,
     panic::{catch_unwind, AssertUnwindSafe},
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     time::{Duration, SystemTime},
 };
@@ -79,11 +79,11 @@ impl Display for Failure {
         match &self.kind {
             FailureKind::OutputInvalidSyntax(output) => {
                 f.write_str("output_invalid_syntax\n\n")?;
-                f.write_str(&output)?;
+                f.write_str(output)?;
             }
             FailureKind::InputInvalidSyntax(input) => {
                 f.write_str("input_invalid_syntax\n\n")?;
-                f.write_str(&input)?;
+                f.write_str(input)?;
             }
             FailureKind::TscInvalidSyntax => {
                 f.write_str("tsc_invalid_syntax\n\n")?;
@@ -247,8 +247,8 @@ fn main() {
         }
     });
 
-    thread_local! { static TSC: RefCell<Option<Tsc>> = RefCell::new(None) }
-    thread_local! { static ALLOCATOR: RefCell<Option<Allocator>> = RefCell::new(None) }
+    thread_local! { static TSC: RefCell<Option<Tsc>> = const { RefCell::new(None) } }
+    thread_local! { static ALLOCATOR: RefCell<Option<Allocator>> = const { RefCell::new(None) } }
 
     let baseline_cache = BaselineCache::new(BASELINE_CACHE_PATH);
 
@@ -284,7 +284,7 @@ fn main() {
                     TestType::Transpile
                 };
 
-                let tsc = tsc.get_or_insert_with(|| Tsc::new());
+                let tsc = tsc.get_or_insert_with(Tsc::new);
 
                 let Some(tsc_output) = (match test_type {
                     TestType::Exec => tsc.process_ts(&source, false, false),
@@ -319,7 +319,7 @@ fn main() {
 
                 ALLOCATOR
                     .with_borrow_mut(|allocator| -> Result<(), FailureKind> {
-                        let allocator = allocator.get_or_insert_with(|| Allocator::default());
+                        let allocator = allocator.get_or_insert_with(Allocator::default);
                         allocator.reset();
 
                         let mut output = input.clone();

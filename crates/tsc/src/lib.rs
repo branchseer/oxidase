@@ -23,6 +23,12 @@ pub enum SourceKind {
     Script,
 }
 
+impl Default for Tsc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Tsc {
     pub fn new() -> Self {
         with_isolate(|isolate| {

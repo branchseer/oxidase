@@ -2,9 +2,7 @@
 
 use std::env::args;
 use std::process;
-use std::rc::Rc;
-use std::sync::Arc;
-use std::{fs::read_to_string, process::abort};
+use std::fs::read_to_string;
 
 use oxidase::oxc_diagnostics::NamedSource;
 use oxidase::{transpile, Allocator, SourceType};

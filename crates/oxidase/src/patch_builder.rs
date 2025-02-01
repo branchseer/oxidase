@@ -1,11 +1,9 @@
 use std::{
     cmp::min,
-    ops::{Deref, DerefMut, Index, IndexMut},
+    ops::{Deref, DerefMut},
 };
 
-use bumpalo::Bump;
 use oxc_allocator::{Allocator, Vec};
-use oxc_span::Span;
 
 use crate::{line_term::contains_line_terminators, Patch};
 
@@ -118,6 +116,6 @@ impl<'source, 'alloc> PatchBuilder<'source, 'alloc> {
                 assert!(patch_after.span.start >= patch.span.end);
             }
         }
-        self.patches.insert(index, patch.into());
+        self.patches.insert(index, patch);
     }
 }
