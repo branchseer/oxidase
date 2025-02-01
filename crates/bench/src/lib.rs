@@ -11,6 +11,5 @@ pub use swc_fast_ts_strip::SwcFastTsStrip;
 
 pub trait Benchee: Default {
     const NAME: &str;
-    type Output;
-    fn run(&mut self, source: &mut String) -> Self::Output;
+    fn run(&mut self, source: &mut String);
 }

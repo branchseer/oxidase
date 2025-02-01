@@ -11,12 +11,12 @@ use crate::Benchee;
 pub struct SwcFastTsStrip(());
 
 impl Benchee for SwcFastTsStrip {
-    type Output = String;
 
     const NAME: &str = "swc_fast_ts_strip";
-    fn run(&mut self, source: &mut String) -> String {
+    fn run(&mut self, source: &mut String) {
         let cm = Lrc::new(SourceMap::new(swc_common::FilePathMapping::empty()));
         let input = take(source);
+        
         let output = GLOBALS.set(&Default::default(), || {
             try_with_handler(cm.clone(), Default::default(), |handler| {
                 HANDLER.set(handler, || {
@@ -43,7 +43,7 @@ impl Benchee for SwcFastTsStrip {
             })
             .unwrap()
         });
-        output
+        *source = output;
     }
     
 }

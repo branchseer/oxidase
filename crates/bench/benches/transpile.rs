@@ -25,12 +25,11 @@ fn bench<B: Benchee>(
             "original"
         },
     );
+    let mut source_buf = String::new();
     g.bench_function(id, |b| {
-        b.iter_batched(
-            || source.to_string(),
-            |mut source| benchee.run(&mut source),
-            BatchSize::SmallInput,
-        )
+        source_buf.clear();
+        source_buf.push_str(source);
+        b.iter_with_setup_wrapper(|runner| runner.run(|| benchee.run(&mut source_buf)));
     });
 }
 

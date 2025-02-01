@@ -1,20 +1,28 @@
-use std::{alloc::{alloc, dealloc, Layout}, hint::black_box, ptr::write_volatile};
+use std::{
+    alloc::{alloc, dealloc, Layout},
+    hint::black_box,
+    ptr::write_volatile,
+};
 
 use wasm_bindgen::prelude::*;
 
 use crate::{Benchee as _, OxcParser, Oxidase, SwcFastTsStrip};
 
+#[cfg(not(target_family = "wasm"))]
 fn page_count() -> usize {
-    #[cfg(not(target_family = "wasm"))]
-    return unimplemented!();
+    unimplemented!()
+}
 
-    #[cfg(target_family = "wasm")]
-    return core::arch::wasm32::memory_size(0);
+#[cfg(target_family = "wasm")]
+fn page_count() -> usize {
+    core::arch::wasm32::memory_size(0)
 }
 
 #[wasm_bindgen]
 pub enum Benchee {
-    Oxidase, OxcParser, SwcFastTsStrip,
+    Oxidase,
+    OxcParser,
+    SwcFastTsStrip,
 }
 
 const PAGE_SIZE: usize = 65536;
@@ -29,7 +37,9 @@ pub fn measure_memory(benchee: Benchee, mut source: String) -> usize {
         if ptr.is_null() {
             panic!("Failed to allocate")
         }
-        unsafe { write_volatile(ptr, 1); } // prevent allocation from being optimized away
+        unsafe {
+            write_volatile(ptr, 1);
+        } // prevent allocation from being optimized away
         if page_count() != page_count_before {
             unsafe { dealloc(ptr, BYTE_LAYOUT) };
             break;
@@ -38,13 +48,13 @@ pub fn measure_memory(benchee: Benchee, mut source: String) -> usize {
 
     match benchee {
         Benchee::Oxidase => {
-            black_box(Oxidase::default().run(&mut source));
+            Oxidase::default().run(&mut source);
         }
-        Benchee::OxcParser =>  {
-            black_box(OxcParser::default().run(&mut source));
+        Benchee::OxcParser => {
+            OxcParser::default().run(&mut source);
         }
         Benchee::SwcFastTsStrip => {
-            black_box(SwcFastTsStrip::default().run(&mut source));
+            SwcFastTsStrip::default().run(&mut source);
         }
     };
     black_box(source);

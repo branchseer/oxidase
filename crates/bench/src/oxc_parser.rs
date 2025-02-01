@@ -1,11 +1,11 @@
 use std::{
     hint::black_box,
-    mem::{forget, transmute, ManuallyDrop},
+    mem::forget,
 };
 
 use super::Benchee;
 use oxc_parser::Parser;
-use oxc_span::{SourceType, Span};
+use oxc_span::SourceType;
 
 #[derive(Default)]
 pub struct OxcParser {
@@ -14,7 +14,6 @@ pub struct OxcParser {
 
 impl Benchee for OxcParser {
     const NAME: &str = "oxc_parser";
-    type Output = ();
     fn run(&mut self, source: &mut String) {
         self.allocator.reset();
         let ret = Parser::new(&self.allocator, source, SourceType::ts()).parse();
