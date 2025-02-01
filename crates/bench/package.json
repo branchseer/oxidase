@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "compare-memory": "tsx memory.mts",
-    "table": "tsx table.mts"
+    "time-table": "tsx time.mts"
   },
   "license": "MIT",
   "dependencies": {

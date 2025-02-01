@@ -1,8 +1,7 @@
-// based on https://github.com/oxc-project/bench-javascript-transformer-written-in-rust/blob/e298c6c3be57a4a48176595b5c558dabd98d0288/memory.sh
-
 import { processTs } from 'oxidase_tsc'
 import { $ } from 'zx'
-import { readdirSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { type Data, readdir, formatAsTable } from './utils.mjs';
 
 await $`wasm-pack build --no-opt --release --target web --features wasm`;
 
@@ -25,38 +24,40 @@ function formatSize(bytes: number) {
     return `${(bytes / 1024 / 1024).toFixed(3)} MB`
 }
 
+const data: Data = {}
 
-for (const file of readdirSync('files')) {
-    if (file.startsWith('.')) { // .DS_Store
-        continue;
-    }
-    for (const removeCodegen of [false, true]) {
+for (const file of await readdir('files')) {
+    for (const erasableSyntaxOnly of [false, true]) {
         let inputPath = `files/${file}`;
         let source: string;
-        if (!removeCodegen) {
+        let parameter: string;
+        if (!erasableSyntaxOnly) {
             const sourceBytes = readFileSync(inputPath);
             const sourceSize = sourceBytes.byteLength;
             source = sourceBytes.toString('utf8');
-            console.log(file, "filesize", formatSize(sourceSize));
+            parameter = `original (${formatSize(sourceSize)})`;
         } else {
-            const sourceWithoutCodegen = processTs(readFileSync(inputPath, 'utf8'), true, true)?.ts;
-            if (sourceWithoutCodegen === undefined) {
-                throw new Error(`Failed to remove codegen of ${inputPath}`);
+            const sourceWithErasableSyntaxOnly = processTs(readFileSync(inputPath, 'utf8'), true, true)?.ts;
+            if (sourceWithErasableSyntaxOnly === undefined) {
+                throw new Error(`Failed to remove non-erasable syntax of ${inputPath}`);
             }
-            source = sourceWithoutCodegen;
-            const sourceSize = Buffer.from(sourceWithoutCodegen, 'utf8').byteLength;
-            console.log(`no_codegen_${file}`, "filesize:", formatSize(sourceSize));
+            source = sourceWithErasableSyntaxOnly;
+            const sourceSize = Buffer.from(sourceWithErasableSyntaxOnly, 'utf8').byteLength;
+            parameter = `erasable syntax only (${formatSize(sourceSize)})`;
         }
 
         for (const benchee of ["oxidase", "oxc_parser", 'swc_fast_ts_strip'] as const) {
-            if (benchee === 'swc_fast_ts_strip' && !removeCodegen) {
+            if (benchee === 'swc_fast_ts_strip' && !erasableSyntaxOnly) {
                 continue;
             }
 
             const usage = await measureMemory(benchee, source);
 
-            console.log("\t", benchee, formatSize(usage));
+            data[file] ||= {};
+            data[file][benchee] ||= {};
+            data[file][benchee][parameter] = usage;
         }
-        console.log();
     }
 }
+
+console.log(formatAsTable(data, formatSize));
