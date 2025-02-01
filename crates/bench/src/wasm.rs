@@ -5,6 +5,10 @@ use wasm_bindgen::prelude::*;
 use crate::{Benchee as _, OxcParser, Oxidase, SwcFastTsStrip};
 
 fn page_count() -> usize {
+    #[cfg(not(target_family = "wasm"))]
+    return unimplemented!();
+
+    #[cfg(target_family = "wasm")]
     return core::arch::wasm32::memory_size(0);
 }
 

@@ -4,7 +4,7 @@ import { processTs } from 'oxidase_tsc'
 import { $ } from 'zx'
 import { readdirSync, readFileSync } from 'node:fs'
 
-await $`wasm-pack build --no-opt --release --target web --features wasm`.quiet();
+await $`wasm-pack build --no-opt --release --target web --features wasm`;
 
 const wasmBinary = readFileSync('./pkg/oxidase_bench_bg.wasm');
 const wasmModule = await WebAssembly.compile(wasmBinary);

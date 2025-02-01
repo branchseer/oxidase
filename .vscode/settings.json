@@ -1,6 +1,5 @@
 {
     "rust-analyzer.checkOnSave": true,
-    "deno.enable": false,
     "mise.configureExtensionsAutomatically": false,
     "mise.configureExtensionsUseSymLinks": true,
 }
