@@ -11,7 +11,7 @@ run = "cargo run --bin debug --"
 [tasks.e2e]
 run = "cargo run -p oxidase_e2e --profile e2e --"
 
-[tasks.'wasm:build']
+[tasks.'build:wasm']
 dir ="{{ config_root }}/packages/wasm/bindings"
 run = [
     "wasm-pack build --release --no-pack --target bundler --out-dir ../wasm_esm",

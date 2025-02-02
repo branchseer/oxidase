@@ -1,2 +1,12 @@
-export var let: string = ;
-// var let = 1;
+enum A {
+    X
+}
+
+enum A {
+    Y = X
+}
+
+const
+enum B {
+
+}

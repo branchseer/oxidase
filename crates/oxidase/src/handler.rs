@@ -28,7 +28,7 @@ pub struct StripHandler<'source, 'alloc> {
     source: &'source str,
     allocator: &'alloc Allocator,
 
-    patches: PatchBuilder<'source, 'alloc>,
+    patches: PatchBuilder<'alloc>,
     scope_stack: NonEmptyStack<Scope<'alloc>>,
 }
 
@@ -141,7 +141,7 @@ impl<'source, 'alloc> StripHandler<'source, 'alloc> {
     pub fn new(allocator: &'alloc Allocator, source: &'source str) -> Self {
         Self {
             source,
-            patches: PatchBuilder::new(source.as_bytes(), allocator),
+            patches: PatchBuilder::new(allocator),
             allocator,
             scope_stack: NonEmptyStack::with_capacity(
                 32,
@@ -671,22 +671,22 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             is_secondary,
         });
 
-        // `(const) enum A {` -> `var A;(function(A,{Foo,Bar}) {{`
-
-        // There could be line terminators between `const` and `enum`
-        self.patches.push_checking_line_terminator(Patch {
-            span: (enum_head.span.start..enum_head.id.span.start).into(),
-            replacement: if !is_secondary {
-                format!(in &self.allocator, "var {};(function(", enum_name).into_bump_str()
-            } else {
-                "(function("
-            },
-        });
+        // `(const) enum A {` -> `var A;(function(A){var {Foo,Bar}=A;{`
+        self.patches
+            .push(((enum_head.span.start..enum_head.id.span.start), "var "));
+        // self.patches.push_checking_line_terminator(Patch {
+        //     span: (enum_head.span.start..enum_head.id.span.start).into(),
+        //     replacement: if !is_secondary {
+        //         format!(in &self.allocator, "var {};(function(", enum_name).into_bump_str()
+        //     } else {
+        //         "(function("
+        //     },
+        // });
 
         self.patches.push(Patch {
             span: (enum_head.id.span.end..enum_head.id.span.end).into(),
             replacement: {
-                let mut replacement = String::from_str_in("){", self.allocator);
+                let mut replacement = format!(in &self.allocator, ";(function({}){{", enum_name);
                 if let Some(existing_member_identifiers) = existing_member_identifiers {
                     if !existing_member_identifiers.is_empty() {
                         replacement.push_str("var {");

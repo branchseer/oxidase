@@ -1,34 +1,30 @@
-use std::{
-    cmp::min,
-    ops::{Deref, DerefMut},
-};
+use std::ops::{Deref, DerefMut};
 
 use oxc_allocator::{Allocator, Vec};
 
-use crate::{line_term::contains_line_terminators, Patch};
+use crate::Patch;
 
-pub struct PatchBuilder<'source, 'alloc> {
-    source: &'source [u8],
+pub struct PatchBuilder<'alloc> {
+    // source: &'source [u8],
     patches: Vec<'alloc, Patch<'alloc>>,
 }
 
-impl<'source, 'alloc> Deref for PatchBuilder<'source, 'alloc> {
+impl<'alloc> Deref for PatchBuilder<'alloc> {
     type Target = [Patch<'alloc>];
 
     fn deref(&self) -> &Self::Target {
         self.patches.as_slice()
     }
 }
-impl<'source, 'alloc> DerefMut for PatchBuilder<'source, 'alloc> {
+impl<'alloc> DerefMut for PatchBuilder<'alloc> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.patches.as_mut_slice()
     }
 }
 
-impl<'source, 'alloc> PatchBuilder<'source, 'alloc> {
-    pub fn new(source: &'source [u8], allocator: &'alloc Allocator) -> Self {
+impl<'alloc> PatchBuilder<'alloc> {
+    pub fn new(allocator: &'alloc Allocator) -> Self {
         Self {
-            source,
             patches: Vec::new_in(allocator),
         }
     }
@@ -44,21 +40,6 @@ impl<'source, 'alloc> PatchBuilder<'source, 'alloc> {
             }
         }
         self.patches.push(patch);
-    }
-
-    pub fn push_checking_line_terminator(&mut self, patch: impl Into<Patch<'alloc>>) {
-        let patch = patch.into();
-        let end = min(
-            patch.span.end as usize,
-            patch.span.start as usize + patch.replacement.len(),
-        );
-        let source_to_replace = &self.source[patch.span.start as usize..end];
-        if contains_line_terminators(source_to_replace) {
-            self.push((patch.span, ""));
-            self.push(((patch.span.end..patch.span.end), patch.replacement));
-        } else {
-            self.push(patch);
-        }
     }
 
     pub fn push_merging_tail(&mut self, patch: impl Into<Patch<'alloc>>) {

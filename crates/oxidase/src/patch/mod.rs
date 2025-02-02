@@ -1,14 +1,12 @@
 use std::{
-    cmp::min,
     mem::{transmute, MaybeUninit},
     ops::Range,
     slice::from_raw_parts_mut,
-    str::from_utf8,
 };
 
 use oxc_span::Span;
 
-use crate::{line_term::contains_line_terminators, string_buf::StringBuf};
+use crate::string_buf::StringBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Patch<'a> {
@@ -177,6 +175,10 @@ pub unsafe fn apply_patches(patches: &[Patch<'_>], source: &mut impl StringBuf) 
 
         #[cfg(debug_assertions)]
         {
+            use crate::line_term::contains_line_terminators;
+            use std::cmp::min;
+            use std::str::from_utf8;
+
             let source_to_be_replaced = unsafe {
                 transmute::<&[MaybeUninit<u8>], &[u8]>(
                     &cur.buf[patch_start..min(patch_start + patch.replacement.len(), patch_end)],
