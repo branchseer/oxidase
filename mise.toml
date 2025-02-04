@@ -1,9 +1,9 @@
 [tools]
 node = "22.13.0"
 pnpm = "10.1.0"
+cargo-binstall = "1.10.22"
 "cargo:wasm-bindgen-cli" = "0.2.100"
 "cargo:wasm-pack" = "0.13.1"
-hyperfine = "1.19.0"
 
 [tasks.debug]
 run = "cargo run --bin debug --"
