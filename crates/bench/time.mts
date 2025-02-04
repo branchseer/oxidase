@@ -2,32 +2,40 @@
 
 
 import { type Data, formatAsTable, readdir } from './utils.mjs'
+import { $ } from 'zx'
+import { rmSync } from 'node:fs'
 
 function moveToFront<T>(arr: T[], predicate: (val: T) => boolean): T[] {
   return [...arr.filter(predicate), ...arr.filter(val => !predicate(val))]
 }
 
+const criterionDir = "../../target/criterion";
+
 async function readData() {
   const data: Data = {};
-  const dir = "../../target/criterion";
 
-  const groups = await readdir(dir);
+  const groups = await readdir(criterionDir);
   for (const group of groups) {
     data[group] ||= {};
 
-    const benches = moveToFront(await readdir(`${dir}/${group}`), name => name === 'oxidase');
+    const benches = moveToFront(await readdir(`${criterionDir}/${group}`), name => name === 'oxidase');
     for (const bench of benches) {
       data[group][bench] ||= {};
 
-      const parameters = moveToFront(await readdir(`${dir}/${group}/${bench}`), name => name.startsWith('original'));
+      const parameters = moveToFront(await readdir(`${criterionDir}/${group}/${bench}`), name => name.startsWith('original'));
       for (const parameter of parameters) {
-        const json = await import(`${dir}/${group}/${bench}/${parameter}/new/estimates.json`, { with: { type: "json" } });
+        const json = await import(`${criterionDir}/${group}/${bench}/${parameter}/new/estimates.json`, { with: { type: "json" } });
         const durationMs = json.default.mean.point_estimate / 1_000_000;
         data[group][bench][parameter] ||= durationMs;
       }
     }
   }
   return data
+}
+
+if (!process.argv.includes('--no-run')) {
+  rmSync(criterionDir, { recursive: true, force: true });
+  await $`cargo bench -p oxidase_bench`;
 }
 
 const data = await readData();

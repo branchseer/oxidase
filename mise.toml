@@ -12,13 +12,13 @@ run = "cargo run --bin debug --"
 run = "cargo run -p oxidase_e2e --profile e2e --"
 
 [tasks.'build:wasm']
-dir ="{{ config_root }}/packages/wasm/bindings"
+dir ="./packages/wasm/bindings"
 run = [
     "wasm-pack build --release --no-pack --target bundler --out-dir ../wasm_esm",
     "wasm-pack build --release --no-pack --target nodejs --out-dir ../wasm_node",
 ]
 
-[tasks.'wasm:test']
+[tasks.'test:wasm']
 dir ="{{ config_root }}/packages/wasm/test"
 run = "node --test test.mjs"
 
@@ -37,4 +37,16 @@ run = [
   'cd {{arg(name="dir")}} || git init {{arg(name="dir")}}',
   'cd {{arg(name="dir")}} && git remote add origin {{arg(name="url")}} || git remote set-url origin {{arg(name="url")}}',
   'cd {{arg(name="dir")}} && git fetch --depth=1 origin {{arg(name="sha")}} && git reset --hard {{arg(name="sha")}}',
+]
+
+[tasks.'compare:memory']
+dir ="./crates/bench"
+run = [
+  "pnpm compare-memory"
+]
+
+[tasks.'compare:time']
+dir ="./crates/bench"
+run = [
+  "pnpm compare-time",
 ]
