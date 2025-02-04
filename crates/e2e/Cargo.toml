@@ -1,6 +1,5 @@
 [package]
 name = "oxidase_e2e"
-version = "0.1.0"
 edition = "2021"
 publish = false
 

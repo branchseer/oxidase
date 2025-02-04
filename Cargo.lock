@@ -1686,7 +1686,7 @@ dependencies = [
 
 [[package]]
 name = "oxidase_bench"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "console_error_panic_hook",
  "criterion2",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "oxidase_e2e"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "csv",
@@ -1734,7 +1734,7 @@ dependencies = [
 
 [[package]]
 name = "oxidase_tsc"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_v8",
