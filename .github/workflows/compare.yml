@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: rustup show
       - uses: jdx/mise-action@v2
       - run: pnpm install
       - run: mise run compare:time
