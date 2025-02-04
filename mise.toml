@@ -18,6 +18,11 @@ run = [
     "wasm-pack build --release --no-pack --target nodejs --out-dir ../wasm_node",
 ]
 
+[tasks.'build:pg']
+depends = "build:wasm"
+dir ="./packages/playground"
+run = "pnpm run build"
+
 [tasks.'test:wasm']
 dir ="{{ config_root }}/packages/wasm/test"
 run = "node --test test.mjs"
