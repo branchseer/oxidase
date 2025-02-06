@@ -5,8 +5,19 @@ on:
 
 jobs:
   compare:
-    name: Compare
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+          - name: macOS x64
+            os: macos-13
+          - name: macOS arm64
+            os: macos-14
+    name: Compare (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
