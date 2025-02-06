@@ -1,18 +1,12 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use std::{cell::RefCell, path::Path, hint::black_box};
+use std::{hint::black_box, path::Path, thread::spawn};
 
 use criterion::{measurement::WallTime, *};
 use oxidase_bench::{Benchee, OxcParser, Oxidase, SwcFastTsStrip};
 
-fn remove_codegen(source: &str) -> String {
-    use oxidase_tsc::Tsc;
-    thread_local! { static TSC: RefCell<Tsc> = RefCell::new(Tsc::new()) }
-    TSC.with_borrow_mut(|tsc| tsc.process_ts(source, true, true))
-        .unwrap()
-        .ts
-}
+use oxidase_tsc::Tsc;
 
 fn bench<B: Benchee>(
     g: &mut BenchmarkGroup<'_, WallTime>,
@@ -42,23 +36,41 @@ fn bench<B: Benchee>(
 
 fn transpile_benchmark(c: &mut Criterion) {
     let filenames = ["checker.ts", "render.ts"];
-    for filename in filenames {
-        let path = Path::new("files").join(filename);
-        let source = std::fs::read_to_string(&path).unwrap();
+    let sources: Vec<String> = filenames
+        .iter()
+        .map(|filename| std::fs::read_to_string(Path::new("files").join(filename)).unwrap())
+        .collect();
 
+    let erasable_syntax_only_sources: Vec<String> = spawn({
+        let sources = sources.clone();
+        move || {
+            let mut tsc = Tsc::new();
+            sources
+                .iter()
+                .map(|source| tsc.process_ts(source, true, true).unwrap().ts)
+                .collect()
+        }
+    })
+    .join()
+    .unwrap();
+
+    unsafe { v8::V8::dispose() };
+    v8::V8::dispose_platform();
+
+    for (index, filename) in filenames.iter().copied().enumerate() {
         let mut g = c.benchmark_group(filename);
 
-        for without_codegen in [false, true] {
-            let source = if without_codegen {
-                remove_codegen(&source)
+        for erasable_syntax_only in [false, true] {
+            let source = if erasable_syntax_only {
+                erasable_syntax_only_sources[index].clone()
             } else {
-                source.clone()
+                sources[index].clone()
             };
 
-            bench::<Oxidase>(&mut g, &source, without_codegen);
-            bench::<OxcParser>(&mut g, &source, without_codegen);
-            if without_codegen {
-                bench::<SwcFastTsStrip>(&mut g, &source, without_codegen);
+            bench::<Oxidase>(&mut g, &source, erasable_syntax_only);
+            bench::<OxcParser>(&mut g, &source, erasable_syntax_only);
+            if erasable_syntax_only {
+                bench::<SwcFastTsStrip>(&mut g, &source, erasable_syntax_only);
             }
         }
         g.finish();
