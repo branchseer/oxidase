@@ -25,6 +25,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # required to prevent rate limiting of GitHub requests raised by cargo binstall
       - run: pnpm install
+      - run: mise run compare:time --no-run
       - run: mise run compare:time
   compare-memory:
     name: Compare Memory
@@ -34,4 +35,5 @@ jobs:
       - run: rustup show
       - uses: jdx/mise-action@v2
       - run: pnpm install
+      - run: mise run compare:memory --no-run
       - run: mise run compare:memory

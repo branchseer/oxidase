@@ -5,6 +5,10 @@ import { type Data, readdir, formatAsTable } from './utils.mjs';
 
 await $`wasm-pack build --no-opt --release --target web --features wasm`;
 
+if (process.argv.includes('--no-run')) {
+    process.exit(0);
+}
+
 const wasmBinary = readFileSync('./pkg/oxidase_bench_bg.wasm');
 const wasmModule = await WebAssembly.compile(wasmBinary);
 

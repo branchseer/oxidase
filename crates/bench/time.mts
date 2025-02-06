@@ -5,11 +5,21 @@ import { type Data, formatAsTable, readdir } from './utils.mjs'
 import { $ } from 'zx'
 import { rmSync } from 'node:fs'
 
+const criterionDir = "../../target/criterion";
+
+await $`cargo bench --bench time --no-run`;
+
+if (process.argv.includes('--no-run')) {
+  process.exit(0);
+}
+
+rmSync(criterionDir, { recursive: true, force: true });
+await $`cargo bench --bench time`;
+
 function moveToFront<T>(arr: T[], predicate: (val: T) => boolean): T[] {
   return [...arr.filter(predicate), ...arr.filter(val => !predicate(val))]
 }
 
-const criterionDir = "../../target/criterion";
 
 async function readData() {
   const data: Data = {};
@@ -33,10 +43,6 @@ async function readData() {
   return data
 }
 
-if (!process.argv.includes('--no-run')) {
-  rmSync(criterionDir, { recursive: true, force: true });
-  await $`cargo bench -p oxidase_bench`;
-}
 
 const data = await readData();
 console.log(formatAsTable(data, (durationMs) => `${durationMs.toFixed(2)} ms`))

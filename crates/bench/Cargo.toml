@@ -28,7 +28,7 @@ wasm-bindgen = { workspace = true, optional = true }
 console_error_panic_hook = { workspace = true, optional = true}
 
 [[bench]]
-name = "transpile"
+name = "time"
 harness = false
 
 [features]
