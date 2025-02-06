@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 [dev-dependencies]
 criterion2 = { workspace = true }
 oxidase_tsc = { workspace = true }
+mimalloc = { workspace = true }
 
 [dependencies]
 oxidase = { workspace = true }
@@ -21,11 +22,10 @@ swc_error_reporters = { workspace = true }
 oxc_parser = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
 oxc_span = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
 oxc_allocator = { git ="https://github.com/oxc-project/oxc", rev = "d11770d552562fef1177c1758558c61752350142" }
-getrandom = { version = "0.2.15" }
+getrandom = { workspace = true }
 
 wasm-bindgen = { workspace = true, optional = true }
 console_error_panic_hook = { workspace = true, optional = true}
-mimalloc = "0.1.43"
 
 [[bench]]
 name = "transpile"

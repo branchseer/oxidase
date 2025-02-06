@@ -24,7 +24,6 @@ jobs:
       - uses: jdx/mise-action@v2
       - run: pnpm install
       - run: mise run compare:time
-      - run: mise run compare:memory
   compare-memory:
     name: Compare Memory
     runs-on: ubuntu-latest
