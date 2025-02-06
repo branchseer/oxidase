@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  compare:
+  compare-time:
     strategy:
       matrix:
         include:
@@ -16,7 +16,7 @@ jobs:
             os: macos-13
           - name: macOS arm64
             os: macos-14
-    name: Compare (${{ matrix.name }})
+    name: Compare Time (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -24,4 +24,13 @@ jobs:
       - uses: jdx/mise-action@v2
       - run: pnpm install
       - run: mise run compare:time
+      - run: mise run compare:memory
+  compare-memory:
+    name: Compare Memory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: jdx/mise-action@v2
+      - run: pnpm install
       - run: mise run compare:memory
