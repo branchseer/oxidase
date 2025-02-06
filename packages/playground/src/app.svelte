@@ -3,6 +3,7 @@
   import { javascript } from "@codemirror/lang-javascript";
   import { EditorView } from "codemirror";
   import { transpile } from "oxidase";
+  import exampleSource from './example?raw'
 
   const jsLang = javascript();
   const tsLang = javascript({ typescript: true });
@@ -10,7 +11,7 @@
     "&.cm-editor": { height: "100%" },
   });
 
-  let source = $state("");
+  let source = $state(exampleSource);
 
   let output = $derived.by(() => {
     try {
