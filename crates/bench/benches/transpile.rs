@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::{cell::RefCell, path::Path, hint::black_box};
 
 use criterion::{measurement::WallTime, *};

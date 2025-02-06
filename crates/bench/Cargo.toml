@@ -25,6 +25,7 @@ getrandom = { version = "0.2.15" }
 
 wasm-bindgen = { workspace = true, optional = true }
 console_error_panic_hook = { workspace = true, optional = true}
+mimalloc = "0.1.43"
 
 [[bench]]
 name = "transpile"
