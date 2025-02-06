@@ -1,4 +1,4 @@
-use std::{cell::RefCell, path::Path};
+use std::{cell::RefCell, path::Path, hint::black_box};
 
 use criterion::{measurement::WallTime, *};
 use oxidase_bench::{Benchee, OxcParser, Oxidase, SwcFastTsStrip};
@@ -26,9 +26,14 @@ fn bench<B: Benchee>(
     let id = BenchmarkId::new(B::NAME, format!("{} ({:.3} MB)", name, size_mb));
     let mut source_buf = String::new();
     g.bench_function(id, |b| {
-        source_buf.clear();
-        source_buf.push_str(source);
-        b.iter_with_setup_wrapper(|runner| runner.run(|| benchee.run(&mut source_buf)));
+        b.iter_with_setup_wrapper(|runner| {
+            source_buf.clear();
+            source_buf.push_str(source);
+            runner.run(|| {
+                benchee.run(&mut source_buf);
+                black_box(source_buf.as_str());
+            });
+        });
     });
 }
 

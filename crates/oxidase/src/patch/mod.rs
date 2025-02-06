@@ -85,29 +85,36 @@ impl<'a> BackwardCursor<'a> {
     /// Safety: self.buf[..src.end] must be inititialized.
     #[inline]
     pub unsafe fn write_whitespaces_preserving_newlines(&mut self, src: Range<usize>) {
-        let mut src_index = src.end as isize - 1;
+        // let mut src_index = src.end as isize - 1;
         // let Some(mut src_index) = src.end.checked_sub(1) else {
         //     return;
         // };
-        while src_index >= src.start as isize {
-            let byte = self.buf[src_index as usize].assume_init();
+
+        let mut src_index = src.end.checked_sub(1);
+        while let Some(unwrapped_src_index) = src_index {
+            if unwrapped_src_index < src.start {
+                break;
+            }
+            let byte = self.buf.get_unchecked(unwrapped_src_index).assume_init();
             match byte {
                 b'\r' | b'\n' => {
                     self.write_byte(byte);
-                    src_index -= 1;
+                    src_index = unwrapped_src_index.checked_sub(1);
                 }
                 168 | 169
                     if matches!(
-                        transmute::<&[MaybeUninit<u8>], &[u8]>(&self.buf[..src_index as usize]),
+                        transmute::<&[MaybeUninit<u8>], &[u8]>(
+                            &self.buf.get_unchecked(..unwrapped_src_index)
+                        ),
                         [.., 226, 128]
                     ) =>
                 {
                     self.write(&[226, 128, byte]);
-                    src_index -= 3;
+                    src_index = unwrapped_src_index.checked_sub(3);
                 }
                 _ => {
                     self.write_byte(b' ');
-                    src_index -= 1;
+                    src_index = unwrapped_src_index.checked_sub(1);
                 }
             }
         }
