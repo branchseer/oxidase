@@ -11,7 +11,6 @@ pub use oxc_allocator::Allocator;
 pub use oxc_allocator::String;
 pub use oxc_diagnostics;
 use oxc_parser::{ParseOptions, Parser};
-use oxc_span::ast_alloc::AstAllocator;
 pub use oxc_span::SourceType;
 // expose for bench
 #[doc(hidden)]
@@ -31,28 +30,18 @@ pub fn transpile<S: StringBuf>(
     source_type: SourceType,
     source: &mut S,
 ) -> TranspileReturn {
-    transpile_with_options(allocator, &VoidAllocator::new(), true, source_type, source)
-}
-
-#[doc(hidden)] // expose options for bench
-pub fn transpile_with_options<A: AstAllocator, S: StringBuf>(
-    allocator: &Allocator,
-    ast_allocator: &A,
-    allow_skip_ambient: bool,
-    source_type: SourceType,
-    source: &mut S,
-) -> TranspileReturn {
     // we are here to transpile, not validate. Be as loose as possible.
     let parser_options = ParseOptions {
         allow_return_outside_function: true,
-        allow_skip_ambient,
+        allow_skip_ambient: true,
         ..Default::default()
     };
 
     let parser = Parser::new(allocator, source.as_ref(), source_type).with_options(parser_options);
     let handler = StripHandler::new(allocator, source.as_ref());
 
-    let mut parser_ret = parser.parse_with(ast_allocator, handler);
+    const VOID_ALLOCATOR: VoidAllocator = VoidAllocator::new();
+    let mut parser_ret = parser.parse_with(&VOID_ALLOCATOR, handler);
     if parser_ret.panicked {
         return TranspileReturn {
             parser_panicked: true,

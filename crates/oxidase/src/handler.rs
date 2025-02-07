@@ -1126,9 +1126,9 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
                     parameter_prop_id_spans
                         .iter()
                         .map(|id_span| {
-                            " this.".len()
+                            "this.".len()
                                 + id_span.size() as usize
-                                + " = ".len()
+                                + "=".len()
                                 + id_span.size() as usize
                                 + ";".len()
                         })
@@ -1161,9 +1161,9 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
 
                 for id_span in parameter_prop_id_spans.iter() {
                     let ident = &self.source[*id_span];
-                    prop_init_code.push_str(" this.");
+                    prop_init_code.push_str("this.");
                     prop_init_code.push_str(ident);
-                    prop_init_code.push_str(" = ");
+                    prop_init_code.push_str("=");
                     prop_init_code.push_str(ident);
                     prop_init_code.push_str(";");
                 }
@@ -1221,16 +1221,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
 
     fn handle_arrow_function_expression(&mut self, arrow_func: &ArrowFunctionExpression<'ast, A>) {
         /*
-           `async
+           `<T>
            () =>`
             to
-           `async (
-           ) =>`
-
-           `return
-           () =>`
-            to
-           `return (
+           `(
            ) =>`
         */
         if let Some(type_param) = &arrow_func.type_parameters {
@@ -1245,11 +1239,13 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
             type_param_strip_patch.replacement = "(";
             type_param_strip_patch.span.end = arrow_func.params.span().start + 1;
         }
-        // `()
-        // => ...`
-        // to
-        // `(
-        // ) => ...`
+        /*
+        `(): {
+        } => ...`
+        to
+        `(
+        ) => ...`
+         */
         if let Some(return_type) = &arrow_func.return_type {
             if let Ok(return_type_strip_patch_index) = self
                 .patches
