@@ -596,10 +596,10 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
 
         self.patches.push((
             name_identifier.span.start..name_identifier.span.start,
-            format!(in &self.allocator, "var {};(function(", namespace_name).into_bump_str(),
+            "var ",
         ));
         self.patches
-            .push(((name_identifier.span.end..name_identifier.span.end), "){"));
+            .push(((name_identifier.span.end..name_identifier.span.end), format!(in &self.allocator, ";(function({}){{", namespace_name).into_bump_str()));
     }
 
     fn handle_binding_identifier(&mut self, id: &BindingIdentifier<'ast>) {
@@ -1007,12 +1007,11 @@ impl<'source, 'alloc, 'ast, A: AstAllocator> AstHandler<'ast, A> for StripHandle
         let mut prop_decls: String<'_> = String::with_capacity_in(
             parameter_prop_id_spans_in_first_constructor
                 .iter()
-                .map(|span| span.size() as usize + 2)
+                .map(|span| span.size() as usize + 1)
                 .sum(),
             self.allocator,
         );
         for prop_id_span in parameter_prop_id_spans_in_first_constructor {
-            prop_decls.push(' ');
             prop_decls.push_str(&self.source[*prop_id_span]);
             prop_decls.push(';');
         }
