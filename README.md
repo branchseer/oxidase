@@ -101,7 +101,7 @@ Oxidase uses a [modified version of oxc_parser](https://github.com/branchseer/ox
 
 For sources with only erasable syntax, all positions of JavaScript code are preserved. Oxidase takes advantage of this and performs character replacements **directly in the input buffer**, avoiding writing the whole output.
 
-Take `let a: string = ''` as an example. Oxidase would replace `: string` with the same amout of whitespaces in the original source buffer, **leaving `let a` and ` = ''` intact**.
+Take `let a: string = ''` as an example. Oxidase would replace `: string` with the same amount of whitespaces in the original source buffer, **leaving `let a` and ` = ''` intact**.
 
 > This optimization requires a mutable buffer of the input source. Since we always do copies when converting strings from JavaScript (UTF16) to Rust (UTF8), this shouldn't be a problem in practice.
 
@@ -126,7 +126,7 @@ interface A {
 }
 ```
 
-> Not all erasable syntaxes can be processed this way. Consider `A<{ a: 1 & 2 }>(0)` and `A<{ a: 1 + 2 }>(0)`, the first one is a function call with type instantiation which should be erased; the second one is a comparasion expression between `A`, `{ a: 1 + 2 }` and `(0)`. Oxiase must rigourously parse what's between `{` and `}` to differentiate the two cases.
+> Not all erasable syntaxes can be processed this way. Consider `A<{ a: 1 & 2 }>(0)` and `A<{ a: 1 + 2 }>(0)`, the first one is a function call with type instantiation which should be erased; the second one is a comparison expression between `A`, `{ a: 1 + 2 }` and `(0)`. Oxiase must rigourously parse what's between `{` and `}` to differentiate the two cases.
 
 
 </details>
