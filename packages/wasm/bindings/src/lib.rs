@@ -1,6 +1,6 @@
 use std::{cell::RefCell, fmt::Write};
 
-use oxidase::oxc_diagnostics::NamedSource;
+use oxidase::{oxc_diagnostics::NamedSource, SourceType};
 use wasm_bindgen::prelude::*;
 
 /*
@@ -13,24 +13,25 @@ thread_local! {
 }
 
 #[wasm_bindgen]
-pub fn transpile(path: &str, mut source: String) -> Result<String, JsError> {
+pub fn transpile(mut source: String, path: Option<String>) -> Result<String, JsError> {
     console_error_panic_hook::set_once();
+    let source_type = if let Some(path) = &path {
+        SourceType::from_path(path)?
+    } else {
+        SourceType::ts()
+    };
     ALLOCATOR.with_borrow_mut(|allocator| {
-        let ret = oxidase::transpile(
-            allocator,
-            oxidase::SourceType::from_path(path)?,
-            &mut source,
-        );
+        let ret = oxidase::transpile(allocator, source_type, &mut source);
         allocator.reset();
         if ret.parser_panicked {
             let mut error_msg = String::new();
             for error in ret.parser_errors {
-                error_msg
-                    .write_fmt(format_args!(
-                        "{:?}",
-                        error.with_source_code(NamedSource::new(path, source.clone()))
-                    ))
-                    .unwrap();
+                let error = if let Some(path) = &path {
+                    error.with_source_code(NamedSource::new(path, source.clone()))
+                } else {
+                    error.with_source_code(source.clone())
+                };
+                error_msg.write_fmt(format_args!("{:?}\n", error)).unwrap();
             }
             return Err(JsError::new(&error_msg));
         }

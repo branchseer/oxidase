@@ -21,7 +21,7 @@ export async function load(url, context, nextLoad) {
 
     const format = "module";
     const nextLoadResult = await nextLoad(url, { ...context, format });
-    const output = transpile(url, nextLoadResult.source.toString());
+    const output = transpile(nextLoadResult.source.toString(), url);
 
     return {
         format,

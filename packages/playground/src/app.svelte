@@ -16,7 +16,7 @@
   let output = $derived.by(() => {
     try {
       return {
-        text: transpile("playground-input.ts", source),
+        text: transpile(source),
         isError: false,
       };
     } catch (err) {
