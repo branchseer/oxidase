@@ -18,7 +18,9 @@
 
 ### Node.js Loader
 
-`npm --import oxidase/register your-ts-file.ts`
+```
+$ node --import oxidase/register your-ts-file.ts
+```
 
 ### JavaScript API
 

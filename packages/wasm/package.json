@@ -1,9 +1,12 @@
 {
   "name": "oxidase",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "Transpiling TypeScript as fast as parsing",
   "author": "branchseer",
   "license": "MIT",
+  "scripts": {
+    "prepack": "cp ../../README.md . && rm -f wasm_esm/.gitignore && rm -f wasm_node/.gitignore"
+  },
   "exports": {
     ".": {
       "node": "./wasm_node/oxidase_wasm_bindings.js",
@@ -13,7 +16,9 @@
       "node": "./loader/register.mjs"
     }
   },
-  "node": ">=18",
+  "engines": {
+    "node": ">=18.20"
+  },
   "keywords": [
     "TypeScript",
     "transpiler"
