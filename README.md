@@ -10,9 +10,6 @@
 
 [Playground](https://branchseer.github.io/oxidase/)
 
-
-The type stripping idea originated from [ts-blank-space](https://bloomberg.github.io/ts-blank-space/), and was later implemented in [swc_fast_ts_strip](https://github.com/swc-project/swc/tree/main/crates/swc_fast_ts_strip), as the default built-in TypeScript transpiler in Node.js v22.6.0+. Oxidase aims to be a faster alternative while supporting non-erasable syntaxes (enums, namespaces and parameter properties).
-
 ## Installation
 
 `npm install -D oxidase`
@@ -31,9 +28,17 @@ import { transpile } from 'oxidase';
 transpile("let a: number = 1"); // returns 'let a         = 1'
 ```
 
-## Enums, Namespaces and Parameter Properties
 
-These syntaxes require code generation, which is not supported by ts-blank-space and swc_fast_ts_strip since it doesn't fit well with type-stripping transpiler.
+## Type-Stripping Transpilers
+
+
+Type-stripping is a clever technique to transpile TypeScript by erasing the types and replacing them with whitespace. This approach preserves positions of all JavaScript code in the output, eliminating the need for sourcemaps.
+
+The idea originated from [ts-blank-space](https://bloomberg.github.io/ts-blank-space/), and was later implemented by [swc_fast_ts_strip](https://github.com/swc-project/swc/tree/main/crates/swc_fast_ts_strip) in Rust, as the default built-in TypeScript transpiler in Node.js v22.6.0+.
+
+Type-stripping inherently lacks support for non-erasable syntaxes such as enums, namespaces, and parameter properties. Oxidase aims to be a faster alternative while supporting these syntaxes.
+
+## Enums, Namespaces and Parameter Properties
 
 Oxidase carefully chooses where to insert code to preserve original code positions in most cases.
 
@@ -80,7 +85,7 @@ That said, PRs are always welcome if anyone is interested in implementing it.
 
 ## Performance
 
-Here are the implementation details that make Oxidase fast. Skip to the [Benchmark](#benchmark) section if you just want to see the results.
+Here are some implementation details that make Oxidase fast. Skip to the [Benchmark](#benchmark) section if you just want to see the results.
 
 <details>
 
@@ -134,10 +139,12 @@ interface A {
 - [swc_fast_ts_strip](https://github.com/swc-project/swc/tree/main/crates/swc_fast_ts_strip), the built-in TypeScript transpiler in Node.js v22.6.0+
 
 |   | Oxidase  | oxc_parser | swc_fast_ts_strip |
-| - | -------- | ------- | ------ |
-| Time | 1 | 1x  | 4x    |
-| Memory  |  1 | 2x ~ 11x[^1]  | 30x     |
+| - | - | - | - |
+| Time | 1 | 1x[^1]  | 4x |
+| Memory  | 1 | 2x ~ 11x[^2]  | 30x |
 
-Check the [action run](https://github.com/branchseer/oxidase/actions/runs/13213107647) for the details. 
+Check the [action run](https://github.com/branchseer/oxidase/actions/runs/13226071637/) for the detailed results. 
 
-[^1]: Depends on whether there are non-erasable syntaxes (enums, namespaces, etc.).
+[^1]: Oxidase is slightly slower that oxc_parser on Linux x64, and slightly faster on macOS arm64.
+
+[^2]: Depends on whether there are non-erasable syntaxes (enums, namespaces, etc.).
